@@ -1,0 +1,28 @@
+{
+  "meta": {
+    "version": "2.1",
+    "update_time": "2025-09-01",
+    "current_week": 1
+  },
+  "bases": [
+    {
+      "name": "示例课程",
+      "course_id": "example-uuid-1234",
+      "color": "#4CAF50",
+      "note": "这是一个示例课程"
+    }
+  ],
+  "details": [
+    {
+      "course_id": "example-uuid-1234",
+      "day_of_week": 1,
+      "start_section": 1,
+      "step": 2,
+      "start_week": 1,
+      "end_week": 16,
+      "week_type": "every",
+      "teacher": "示例教师",
+      "location": "示例教室"
+    }
+  ]
+}

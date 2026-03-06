@@ -1,0 +1,105 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+build_*/
+*.egg
+.venv/
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Personal Data
+data/courses.json
+data/course_groups.json
+data/daily_notes.json
+data/gpa_records.json
+data/jinrishici_token.txt
+data/schedule_data.json
+data/settings.json
+data/shici_cache.json
+data/tasks.json
+data/wakeup_export_*.json
+data/backups/
+data/logs/
+data/webengine_cache/
+data/webengine_storage/
+data/_audit_*/
+
+# Backups
+backups/
+*.bak
+*.bak_*
+*.backup
+*.recovered.preview.py
+
+# Build & Package
+build/
+build_*/
+dist/
+*.spec
+auto-py-to-exe-config.json
+打包完成说明.txt
+
+# Test & Debug Files
+test_*.py
+*_test.py
+diagnose_*.html
+clear_cache.html
+enable_debug_mode.py
+.hypothesis/
+*/.hypothesis/
+
+# Documentation (Markdown files)
+*.md
+!README.md
+
+# Temporary Files
+.tmp/
+*.tmp
+tmp*/
+
+# Fix & Utility Scripts
+fix_*.py
+clean_*.py
+check_*.py
+find_*.py
+remove_*.py
+replace_*.py
+validate_*.py
+final_fix.py
+pre_package_check.py
+
+# Build Scripts
+build*.bat
+build*.py
+rebuild*.bat
+force_clean.bat
+run_type_check.*
+
+# Backup Files
+main_backup.py
+bridge.py.bak_*
+
+# Dev Dependencies
+requirements-dev.txt
+mypy.ini
+
+# Chinese Named Files
+快速启动.bat

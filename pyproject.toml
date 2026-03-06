@@ -1,0 +1,96 @@
+[tool.mypy]
+# Mypy 类型检查配置
+# 用于确保课程数据标准化模块的类型安全
+
+# 基本配置
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false  # 逐步启用，避免影响现有代码
+disallow_any_generics = false
+disallow_subclassing_any = false
+
+# 严格模式（针对新模块）
+[[tool.mypy.overrides]]
+module = "backend.utils.data_normalizer"
+disallow_untyped_defs = true
+disallow_any_unimported = false
+disallow_any_expr = false
+disallow_any_decorated = false
+disallow_any_explicit = false
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_optional = true
+strict_equality = true
+
+# 针对验证器模块的严格检查
+[[tool.mypy.overrides]]
+module = "backend.utils.validators"
+disallow_untyped_defs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+strict_optional = true
+
+# 忽略第三方库的类型检查
+[[tool.mypy.overrides]]
+module = [
+    "PyQt6.*",
+    "openpyxl.*",
+    "bs4.*",
+    "hypothesis.*"
+]
+ignore_missing_imports = true
+
+[tool.pyright]
+# Pyright 类型检查配置（VS Code Python 扩展使用）
+include = ["backend/utils"]
+exclude = [
+    "**/__pycache__",
+    "**/node_modules",
+    ".venv",
+    "venv"
+]
+
+# 类型检查模式
+typeCheckingMode = "basic"
+
+# 针对数据标准化模块使用严格模式
+executionEnvironments = [
+    { root = "backend/utils", pythonVersion = "3.10", extraPaths = ["backend"] }
+]
+
+[tool.pytest.ini_options]
+# Pytest 配置
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--strict-markers",
+    "--tb=short",
+]
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "property: Property-based tests",
+    "slow: Slow running tests",
+]
+
+[tool.coverage.run]
+# 代码覆盖率配置
+source = ["backend"]
+omit = [
+    "*/tests/*",
+    "*/__pycache__/*",
+    "*/venv/*",
+]
+
+[tool.coverage.report]
+# 覆盖率报告配置
+precision = 2
+show_missing = true
+skip_covered = false

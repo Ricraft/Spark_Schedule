@@ -1,0 +1,62 @@
+{
+  "meta": {
+    "version": "2.1",
+    "update_time": "2025-01-31",
+    "current_week": 1
+  },
+  "bases": [
+    {
+      "name": "高等数学",
+      "course_id": "math-001",
+      "color": "#8B5CF6",
+      "note": "重要的数学基础课程"
+    },
+    {
+      "name": "Python 程序设计",
+      "course_id": "python-001",
+      "color": "#EC4899",
+      "note": "编程入门课程"
+    },
+    {
+      "name": "数据结构",
+      "course_id": "ds-001",
+      "color": "#10B981",
+      "note": "计算机科学核心课程"
+    }
+  ],
+  "details": [
+    {
+      "course_id": "math-001",
+      "day_of_week": 1,
+      "start_section": 1,
+      "step": 2,
+      "start_week": 1,
+      "end_week": 16,
+      "week_type": "every",
+      "teacher": "张教授",
+      "location": "A-101"
+    },
+    {
+      "course_id": "python-001",
+      "day_of_week": 3,
+      "start_section": 3,
+      "step": 2,
+      "start_week": 1,
+      "end_week": 16,
+      "week_type": "every",
+      "teacher": "李老师",
+      "location": "机房 B"
+    },
+    {
+      "course_id": "ds-001",
+      "day_of_week": 5,
+      "start_section": 1,
+      "step": 2,
+      "start_week": 1,
+      "end_week": 16,
+      "week_type": "every",
+      "teacher": "王老师",
+      "location": "C-201"
+    }
+  ]
+}
