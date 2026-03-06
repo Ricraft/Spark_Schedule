@@ -1,10 +1,10 @@
 <div align="center">
 
-# ⭐ Spark Schedule
+# ✨ Spark Schedule
 
 ### 点燃你的学习热情，让每一天都闪耀光芒
 
-*一款充满活力的智能课程表管理应用*
+*唤醒你的校园时光 · 用 AI 和现代化设计重新定义课程管理体验*
 
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 [![PyQt6](https://img.shields.io/badge/PyQt6-6.6+-green.svg)](https://www.riverbankcomputing.com/software/pyqt/)
@@ -17,9 +17,16 @@
 
 ## ✨ 什么是 Spark Schedule？
 
-Spark Schedule 不只是一个课程表工具，它是你学习生活的智能伙伴！就像火花点燃激情，Spark 让你的每一天都充满动力和方向。
+Spark Schedule 不只是一个课程表工具，它是你学习生活的智能伙伴！就像火花 ✨ 点燃激情，Spark 让你的每一天都充满动力和方向。
 
 🎯 **精准规划** · 📊 **数据可视** · 🎨 **个性定制** · 🚀 **高效管理**
+
+### 核心理念
+
+- **✨ 极致美学设计** - 采用 Modern UI 设计语言，支持沉浸式背景、亚克力半透明磨砂质感与自定义配色
+- **⚡ 智能高效导入** - 支持 HTML、Excel 及文本文件一键导入，告别繁琐的手动录入
+- **🎨 深度个性定制** - 从每日节数到详细作息时间，从单双周设置到课程颜色，一切皆可随心定义
+- **💡 贴心课程助理** - 支持系统托盘常驻与课前自动提醒，确保你不会错过任何一节重要课程
 
 ---
 
@@ -89,7 +96,7 @@ start_minimized.bat
 ## 🏗️ 项目架构
 
 ```
-⭐ Spark_Schedule/
+✨ Spark_Schedule/
 │
 ├── 🎯 main.py                 # 应用入口 - 点燃 Spark
 ├── 🌉 bridge.py               # 前后端桥接 - 连接一切
@@ -152,6 +159,29 @@ start_minimized.bat
 
 ---
 
+## 🙏 特别感谢
+
+Spark Schedule 的诞生离不开以下开源项目和社区的支持：
+
+### 核心技术栈
+- **[Python](https://www.python.org/)** - 强大而优雅的编程语言
+- **[PyQt6](https://www.riverbankcomputing.com/software/pyqt/)** - 现代化的跨平台 GUI 框架
+- **[Qt Framework](https://www.qt.io/)** - 世界级的应用程序开发框架
+
+### 功能支持
+- **[Requests](https://requests.readthedocs.io/)** - 优雅的 HTTP 库
+- **[OpenPyXL](https://openpyxl.readthedocs.io/)** - Excel 文件处理利器
+
+### 设计灵感
+- **Modern UI Design** - 微软 Fluent Design System
+- **Material Design** - Google 设计语言
+- **Acrylic Effect** - Windows 11 视觉风格
+
+### 社区贡献
+感谢所有提出建议、报告问题和贡献代码的开发者们！你们的每一份支持都让 Spark 更加闪耀 ✨
+
+---
+
 ## 🌟 Star History
 
 如果 Spark Schedule 对你有帮助，请给我们一个 ⭐ Star！
@@ -162,10 +192,16 @@ start_minimized.bat
 
 <div align="center">
 
-### 让 Spark 点燃你的学习之路 ⭐
+### 让 Spark ✨ 点燃你的学习之路
 
-**Made with ❤️ by Ricraft**
+**Made with ❤️ by Ricraft & Open Source Community**
+
+*让每一次查看课程，都成为唤醒活力的一刻*
 
 [报告问题](https://github.com/Ricraft/Spark_Schedule/issues) · [功能建议](https://github.com/Ricraft/Spark_Schedule/issues) · [加入讨论](https://github.com/Ricraft/Spark_Schedule/discussions)
+
+---
+
+**Copyright © 2024-2025 All Rights Reserved**
 
 </div>
