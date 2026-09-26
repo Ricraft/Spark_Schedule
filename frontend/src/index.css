@@ -1,0 +1,1025 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* 动态变量 - 由 useRealtimeSettings 控制 */
+:root {
+  --acrylic-opacity: 0.8;
+  --glass-bg-opacity: 0.8;
+  --transition-duration: 300ms;
+}
+
+/* 禁用所有过渡动画 */
+html.no-transitions *,
+html.no-transitions *::before,
+html.no-transitions *::after {
+  transition: none !important;
+  animation: none !important;
+}
+
+/* 减少动效 */
+html.reduce-motion *,
+html.reduce-motion *::before,
+html.reduce-motion *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}
+
+@font-face {
+  font-family: 'ArkPixel';
+  src: url('/WOFF2/12px-monospaced-ttf.woff2/ark-pixel-12px-monospaced-zh_cn.ttf.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+  font-display: block;
+  unicode-range: U+4E00-9FFF, U+3000-303F, U+FF00-FFEF;
+}
+
+@font-face {
+  font-family: 'ArkPixel';
+  src: url('/WOFF2/12px-monospaced-ttf.woff2/ark-pixel-12px-monospaced-latin.ttf.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+  font-display: block;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@custom-variant dark (&:is(.dark *));
+@custom-variant midnight (&:is(.dark.midnight *));
+
+@theme inline {
+  --font-sans: var(--fontSans);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --shadow-x: var(--shadow-x);
+  --shadow-y: var(--shadow-y);
+  --shadow-blur: var(--shadow-blur);
+  --shadow-spread: var(--shadow-spread);
+  --shadow-color: var(--shadow-color);
+}
+
+:root {
+  --fontSans: "Inter", "Segoe UI", sans-serif;
+  --background: rgba(243, 244, 246, 1);
+  --foreground: rgba(31, 41, 55, 1);
+  --card: rgba(255, 255, 255, 0.7); /* Acrylic effect base */
+  --card-foreground: rgba(31, 41, 55, 1);
+  --popover: rgba(255, 255, 255, 1);
+  --popover-foreground: rgba(31, 41, 55, 1);
+  --primary: rgba(99, 102, 241, 1);
+  --primary-foreground: rgba(255, 255, 255, 1);
+  --secondary: rgba(224, 231, 255, 1);
+  --secondary-foreground: rgba(31, 41, 55, 1);
+  --muted: rgba(243, 244, 246, 1);
+  --muted-foreground: rgba(107, 114, 128, 1);
+  --accent: rgba(255, 255, 255, 0.5);
+  --accent-foreground: rgba(31, 41, 55, 1);
+  --destructive: rgba(239, 68, 68, 1);
+  --destructive-foreground: rgba(255, 255, 255, 1);
+  --border: rgba(229, 231, 235, 0.6);
+  --input: rgba(229, 231, 235, 1);
+  --ring: rgba(99, 102, 241, 0.3);
+  --chart-1: rgba(99, 102, 241, 1);
+  --chart-2: rgba(168, 85, 247, 1);
+  --chart-3: rgba(236, 72, 153, 1);
+  --chart-4: rgba(34, 197, 94, 1);
+  --chart-5: rgba(234, 179, 8, 1);
+  --radius: 1rem; /* Large rounded corners */
+  --sidebar: rgba(255, 255, 255, 0.8);
+  --sidebar-foreground: rgba(31, 41, 55, 1);
+  --sidebar-primary: rgba(31, 41, 55, 1);
+  --sidebar-primary-foreground: rgba(255, 255, 255, 1);
+  --sidebar-accent: rgba(243, 244, 246, 1);
+  --sidebar-accent-foreground: rgba(31, 41, 55, 1);
+  --sidebar-border: rgba(229, 231, 235, 0.6);
+  --sidebar-ring: rgba(209, 213, 219, 1);
+  --shadow-x: 0px;
+  --shadow-y: 8px;
+  --shadow-blur: 24px;
+  --shadow-spread: -4px;
+  --shadow-color: rgba(0, 0, 0, 0.08); /* Soft shadow */
+}
+
+:root.dark {
+  --background: rgba(24, 24, 27, 1);
+  --foreground: rgba(228, 228, 231, 1);
+  --card: rgba(39, 39, 42, 0.7); /* Dark acrylic effect base */
+  --card-foreground: rgba(228, 228, 231, 1);
+  --popover: rgba(39, 39, 42, 1);
+  --popover-foreground: rgba(228, 228, 231, 1);
+  --primary: rgba(129, 140, 248, 1);
+  --primary-foreground: rgba(255, 255, 255, 1);
+  --secondary: rgba(63, 63, 70, 1);
+  --secondary-foreground: rgba(228, 228, 231, 1);
+  --muted: rgba(39, 39, 42, 1);
+  --muted-foreground: rgba(161, 161, 170, 1);
+  --accent: rgba(55, 55, 60, 0.5);
+  --accent-foreground: rgba(228, 228, 231, 1);
+  --destructive: rgba(239, 68, 68, 1);
+  --destructive-foreground: rgba(255, 255, 255, 1);
+  --border: rgba(63, 63, 70, 0.6);
+  --input: rgba(63, 63, 70, 1);
+  --ring: rgba(129, 140, 248, 0.3);
+  --sidebar: rgba(39, 39, 42, 0.8);
+  --sidebar-foreground: rgba(228, 228, 231, 1);
+  --sidebar-primary: rgba(228, 228, 231, 1);
+  --sidebar-primary-foreground: rgba(31, 41, 55, 1);
+  --sidebar-accent: rgba(39, 39, 42, 1);
+  --sidebar-accent-foreground: rgba(228, 228, 231, 1);
+  --sidebar-border: rgba(63, 63, 70, 0.6);
+  --sidebar-ring: rgba(82, 82, 91, 1);
+  --shadow-color: rgba(0, 0, 0, 0.3);
+}
+
+/* Midnight Deep Dark Theme */
+:root.dark.midnight {
+  --background: rgba(0, 0, 0, 1);
+  --foreground: rgba(244, 244, 245, 1);
+  --card: rgba(18, 18, 18, 0.7);
+  --card-foreground: rgba(244, 244, 245, 1);
+  --popover: rgba(18, 18, 18, 1);
+  --popover-foreground: rgba(244, 244, 245, 1);
+  --primary: rgba(16, 185, 129, 1); /* Emerald */
+  --primary-foreground: rgba(255, 255, 255, 1);
+  --secondary: rgba(24, 24, 27, 1);
+  --secondary-foreground: rgba(244, 244, 245, 1);
+  --muted: rgba(24, 24, 27, 1);
+  --muted-foreground: rgba(113, 113, 122, 1);
+  --accent: rgba(39, 39, 42, 0.5);
+  --accent-foreground: rgba(244, 244, 245, 1);
+  --border: rgba(39, 39, 42, 0.6);
+  --input: rgba(39, 39, 42, 1);
+  --ring: rgba(16, 185, 129, 0.3);
+  --sidebar: rgba(9, 9, 11, 0.8);
+  --sidebar-foreground: rgba(244, 244, 245, 1);
+  --sidebar-primary: rgba(16, 185, 129, 1);
+  --sidebar-primary-foreground: rgba(255, 255, 255, 1);
+  --sidebar-accent: rgba(24, 24, 27, 1);
+  --sidebar-accent-foreground: rgba(244, 244, 245, 1);
+  --sidebar-border: rgba(39, 39, 42, 0.6);
+  --sidebar-ring: rgba(63, 63, 70, 1);
+  --shadow-color: rgba(0, 0, 0, 0.5);
+}
+
+/* Midnight Theme Body Gradient */
+html.dark.midnight body {
+  background: 
+    radial-gradient(at 0% 0%, rgba(16, 185, 129, 0.15) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, rgba(9, 9, 11, 0.5) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, rgba(0, 0, 0, 0.5) 0px, transparent 50%),
+    radial-gradient(at 0% 100%, rgba(16, 185, 129, 0.05) 0px, transparent 50%),
+    rgba(0, 0, 0, 1);
+  background-attachment: fixed;
+}
+
+/* Fluid Gradient Background */
+body {
+  background: 
+    radial-gradient(at 0% 0%, rgba(224, 231, 255, 0.8) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, rgba(236, 254, 255, 0.8) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, rgba(253, 242, 248, 0.8) 0px, transparent 50%),
+    radial-gradient(at 0% 100%, rgba(245, 243, 255, 0.8) 0px, transparent 50%),
+    rgba(249, 250, 251, 1);
+  background-attachment: fixed;
+  font-family: var(--font-sans);
+  color: var(--foreground);
+}
+
+html.dark body {
+  background: 
+    radial-gradient(at 0% 0%, rgba(31, 41, 55, 0.5) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, rgba(39, 39, 42, 0.5) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, rgba(24, 24, 27, 0.5) 0px, transparent 50%),
+    radial-gradient(at 0% 100%, rgba(25, 25, 28, 0.5) 0px, transparent 50%),
+    rgba(24, 24, 27, 1); /* dark background */
+  background-attachment: fixed;
+}
+
+@layer utilities {
+  .shadow-custom {
+    box-shadow: var(--shadow-x) var(--shadow-y) var(--shadow-blur) var(--shadow-spread) var(--shadow-color);
+  }
+  
+  /* Acrylic Material Utility - Windows 11 Style */
+  .acrylic {
+    background-color: var(--card);
+    backdrop-filter: blur(24px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    box-shadow: 
+      0 4px 24px -1px rgba(0, 0, 0, 0.04),
+      0 0 1px 0 rgba(0, 0, 0, 0.1);
+  }
+
+  html.dark .acrylic {
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  html.dark.midnight .acrylic {
+    background-color: rgba(18, 18, 18, 0.7);
+    border: 1px solid rgba(16, 185, 129, 0.2);
+    box-shadow: 0 4px 24px -1px rgba(0, 0, 0, 0.5);
+  }
+
+  /* Mica Material Utility - More solid, reflective */
+  .mica {
+    background-color: rgba(255, 255, 255, 0.65);
+    backdrop-filter: blur(40px) saturate(200%);
+    border: 1px solid rgba(255, 255, 255, 0.7);
+    box-shadow: 
+      0 10px 40px -10px rgba(0, 0, 0, 0.1),
+      inset 0 1px 1px 0 rgba(255, 255, 255, 0.4);
+  }
+
+  /* Dark mode mica */
+  html.dark .mica {
+    background-color: rgba(39, 39, 42, 0.65);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.4);
+  }
+
+  /* Midnight mode mica */
+  html.dark.midnight .mica {
+    background-color: rgba(10, 10, 10, 0.8);
+    border: 1px solid rgba(16, 185, 129, 0.15);
+    box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.8);
+  }
+
+  /* Windows 11 Style Input */
+  .win11-input {
+    @apply bg-white/40 border border-slate-200/60 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-indigo-500/50 focus:ring-4 focus:ring-indigo-500/10 transition-all backdrop-blur-md shadow-sm;
+  }
+
+  html.dark .win11-input {
+    @apply bg-zinc-800/40 border-zinc-700/60 text-zinc-200 focus:border-indigo-500/50 focus:ring-indigo-500/20;
+  }
+
+  html.dark.midnight .win11-input {
+    @apply bg-black/40 border-emerald-900/40 text-emerald-50 focus:border-emerald-500/50 focus:ring-emerald-500/20;
+  }
+
+  /* Enhanced Animation Utilities */
+  .animate-reverse {
+    animation-direction: reverse;
+  }
+
+  .animate-float {
+    animation: float 3s ease-in-out infinite;
+  }
+
+  .animate-glow {
+    animation: glow 2s ease-in-out infinite alternate;
+  }
+
+  .animate-shimmer {
+    animation: shimmer 2s linear infinite;
+  }
+
+  /* 慢速脉冲动画 - 3秒一次，更柔和 */
+  .animate-pulse-slow {
+    animation: pulse-slow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  /* 超慢速脉冲动画 - 5秒一次 */
+  .animate-pulse-slower {
+    animation: pulse-slow 5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  /* 慢速旋转动画 - 2秒一圈 */
+  .animate-spin-slow {
+    animation: spin 2s linear infinite;
+  }
+
+  /* 超慢速旋转动画 - 3秒一圈 */
+  .animate-spin-slower {
+    animation: spin 3s linear infinite;
+  }
+
+  .text-shadow-sm {
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  }
+
+  /* Staggered Animation Delays */
+  .stagger-1 { animation-delay: 100ms; }
+  .stagger-2 { animation-delay: 200ms; }
+  .stagger-3 { animation-delay: 300ms; }
+  .stagger-4 { animation-delay: 400ms; }
+  .stagger-5 { animation-delay: 500ms; }
+
+  /* Custom Scrollbar Styles - Hide horizontal scrollbar, style vertical */
+  .custom-scrollbar {
+    /* Hide horizontal scrollbar completely */
+    overflow-x: hidden;
+    /* Allow vertical scrolling with custom styling */
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(156, 163, 175, 0.5) transparent;
+  }
+
+  /* Webkit browsers (Chrome, Safari, Edge) */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 0px; /* Hide horizontal scrollbar */
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+    border-radius: 3px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(156, 163, 175, 0.5);
+    border-radius: 3px;
+    transition: background 0.2s ease;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(156, 163, 175, 0.8);
+  }
+
+  /* Hide horizontal scrollbar completely */
+  .custom-scrollbar::-webkit-scrollbar:horizontal {
+    display: none;
+  }
+
+  /* Responsive layout utilities */
+  .schedule-grid {
+    display: grid;
+    grid-template-columns: minmax(60px, 80px) repeat(7, minmax(0, 1fr));
+    min-width: 0;
+  }
+
+  .schedule-time-slot {
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  /* Ensure no horizontal overflow */
+  .no-horizontal-scroll {
+    overflow-x: hidden !important;
+    max-width: 100%;
+  }
+
+  /* Responsive adjustments for smaller screens */
+  @media (max-width: 1024px) {
+    .schedule-grid {
+      grid-template-columns: minmax(50px, 60px) repeat(7, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 768px) {
+    .schedule-grid {
+      grid-template-columns: minmax(40px, 50px) repeat(7, minmax(0, 1fr));
+    }
+    
+    /* Hide sidebar on mobile to prevent horizontal scroll */
+    .mobile-hide-sidebar {
+      display: none;
+    }
+    
+    /* Adjust main content on mobile */
+    .mobile-full-width {
+      width: 100% !important;
+      flex: none !important;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .schedule-grid {
+      grid-template-columns: minmax(35px, 40px) repeat(7, minmax(0, 1fr));
+    }
+  }
+}
+
+/* Custom Keyframe Animations */
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes glow {
+  from { box-shadow: 0 0 5px rgba(99, 102, 241, 0.2); }
+  to { box-shadow: 0 0 20px rgba(99, 102, 241, 0.6); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes pulse-slow {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* Enhanced Hover Effects */
+.hover-lift {
+  transition: transform 0.2s ease-out, box-shadow 0.2s ease-out;
+}
+
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+}
+
+/* Smooth Page Transitions */
+.page-transition {
+  transition: opacity 400ms ease-out, transform 400ms ease-out;
+}
+
+.page-hidden {
+  opacity: 0;
+  transform: translateX(20px) scale(0.98);
+}
+
+.page-visible {
+  opacity: 1;
+  transform: translateX(0) scale(1);
+}
+
+/* Enhanced Loading States */
+.loading-shimmer {
+  background: linear-gradient(90deg, 
+    rgba(255, 255, 255, 0) 0%, 
+    rgba(255, 255, 255, 0.4) 50%, 
+    rgba(255, 255, 255, 0) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+/* Micro-interactions */
+.micro-bounce {
+  animation: micro-bounce 0.6s ease-out;
+}
+
+@keyframes micro-bounce {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+
+/* Staggered Animations */
+.stagger-children > * {
+  animation-delay: calc(var(--stagger-delay, 0) * 100ms);
+}
+
+/* Performance Optimizations */
+.gpu-accelerated {
+  transform: translateZ(0);
+  will-change: transform, opacity;
+}
+
+/* GPU Optimization Classes */
+.gpu-optimized {
+  will-change: transform;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+.gpu-disabled {
+  contain: layout style paint;
+  scroll-behavior: smooth;
+}
+
+/* GPU Disabled Optimizations - Applied when GPU acceleration is off */
+html.gpu-disabled * {
+  /* 禁用 GPU 加速属性 */
+  will-change: auto !important;
+  transform: none !important;
+  backface-visibility: visible !important;
+  perspective: none !important;
+}
+
+html.gpu-disabled {
+  scroll-behavior: smooth;
+}
+
+/* 禁用模糊效果，使用纯色背景 */
+html.gpu-disabled .acrylic,
+html.gpu-disabled .mica {
+  backdrop-filter: none !important;
+  background-color: rgba(255, 255, 255, 0.95) !important;
+}
+
+html.gpu-disabled.dark .acrylic,
+html.gpu-disabled.dark .mica {
+  background-color: rgba(39, 39, 42, 0.95) !important;
+}
+
+/* 简化动画 */
+html.gpu-disabled .animate-float,
+html.gpu-disabled .animate-glow,
+html.gpu-disabled .animate-shimmer {
+  animation: none !important;
+}
+
+/* 使用简单的 transition 替代复杂动画 */
+html.gpu-disabled .interactive-element {
+  transition: opacity 150ms ease, background-color 150ms ease !important;
+}
+
+html.gpu-disabled .interactive-element:hover {
+  opacity: 0.9;
+}
+
+html.gpu-disabled .interactive-element:active {
+  opacity: 0.8;
+}
+
+/* 优化滚动性能 */
+html.gpu-disabled .custom-scrollbar {
+  overflow-y: scroll;
+  -webkit-overflow-scrolling: touch;
+  contain: layout style paint;
+}
+
+/* 减少阴影复杂度 */
+html.gpu-disabled .shadow-custom,
+html.gpu-disabled .acrylic,
+html.gpu-disabled .mica {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Low-performance mode: preserve interactions while avoiding expensive effects. */
+html.performance-low * {
+  transition-duration: 0.1s !important;
+}
+
+html.performance-low .animate-pulse,
+html.performance-low .animate-ping,
+html.performance-low .animate-bounce,
+html.performance-low .animate-spin,
+html.performance-low .animate-pulse-slow,
+html.performance-low .animate-pulse-slower,
+html.performance-low .animate-spin-slow,
+html.performance-low .animate-spin-slower,
+html.performance-low .animate-float,
+html.performance-low .animate-glow,
+html.performance-low .animate-shimmer,
+html.performance-low .ripple-ring,
+html.performance-low .loading-fallback-bg,
+html.performance-low .loading-logo,
+html.performance-low .loading-status {
+  animation: none !important;
+}
+
+html.performance-low [class*="backdrop-blur"],
+html.performance-low .acrylic,
+html.performance-low .mica,
+html.performance-low .glass-card,
+html.performance-low .glass-sidebar {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html.performance-balanced * {
+  transition-duration: 0.2s !important;
+}
+
+/* 性能平衡模式下保留慢速动画的原始速度 */
+html.performance-balanced .animate-pulse-slow,
+html.performance-balanced .animate-pulse-slower,
+html.performance-balanced .animate-spin-slow,
+html.performance-balanced .animate-spin-slower {
+  animation-duration: 3s !important;
+}
+
+/* 番茄钟涟漪动画保持 6 秒 */
+html.performance-balanced .ripple-ring {
+  animation-duration: 6s !important;
+}
+
+html.performance-high * {
+  transition-duration: 0.3s !important;
+}
+
+/* 高性能模式下保留慢速动画的原始速度 */
+html.performance-high .animate-pulse-slow,
+html.performance-high .animate-pulse-slower,
+html.performance-high .animate-spin-slow,
+html.performance-high .animate-spin-slower {
+  animation-duration: 3s !important;
+}
+
+/* 番茄钟涟漪动画保持 6 秒 */
+html.performance-high .ripple-ring {
+  animation-duration: 6s !important;
+}
+
+/* 减少动画偏好 */
+html.reduced-motion *,
+html.reduced-motion *::before,
+html.reduced-motion *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* Hover State Improvements */
+.interactive-element {
+  transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  transform: translateZ(0);
+}
+
+.interactive-element:hover {
+  transform: translateY(-2px) translateZ(0);
+}
+
+.interactive-element:active {
+  transform: translateY(0) scale(0.98) translateZ(0);
+}
+
+/* 新的加载进度条样式 */
+.loader-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+}
+
+.loader {
+  width: 300px;
+  height: 28px;
+  border-radius: 20px;
+  color: #5a9d7f; /* 比 #74b39b 深一点的绿色 */
+  border: 3px solid currentColor;
+  position: relative;
+  background: rgba(0, 0, 0, 0.3);
+  box-shadow: 0 0 20px rgba(90, 157, 127, 0.5);
+}
+
+.loader-fill {
+  content: "";
+  position: absolute;
+  margin: 3px;
+  inset: 0 100% 0 0;
+  border-radius: inherit;
+  background: currentColor;
+  transition: inset 0.3s ease-out;
+  box-shadow: 0 0 10px currentColor;
+}
+
+
+/* 加载屏幕样式 */
+.loading-screen {
+  position: fixed;
+  inset: 0;
+  background: #111827;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 9999;
+}
+
+.loading-screen::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: linear-gradient(130deg, rgba(30, 27, 75, 0.35), rgba(15, 23, 42, 0.15));
+}
+
+.loading-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  will-change: auto;
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  perspective: 1000px;
+  -webkit-perspective: 1000px;
+  z-index: 1;
+  image-rendering: auto;
+  -webkit-font-smoothing: antialiased;
+}
+
+.loading-fallback-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background:
+    radial-gradient(circle at 20% 50%, rgba(99, 102, 241, 0.2) 0%, transparent 55%),
+    radial-gradient(circle at 80% 80%, rgba(56, 189, 248, 0.16) 0%, transparent 55%),
+    linear-gradient(135deg, #0f172a 0%, #1e1b4b 55%, #111827 100%);
+  z-index: 0;
+  animation: bgPulse 10s ease-in-out infinite;
+}
+
+@keyframes bgPulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.95;
+  }
+}
+
+.loading-logo {
+  position: absolute;
+  top: 2rem;
+  left: 2rem;
+  z-index: 10;
+  color: #e0e7ff;
+  font-size: 2rem;
+  font-family: Inter, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  font-weight: 800;
+  letter-spacing: 5px;
+  text-shadow: 0 0 20px rgba(129, 140, 248, 0.55);
+  animation: logoGlow 2s ease-in-out infinite;
+}
+
+@keyframes logoGlow {
+  0%, 100% {
+    text-shadow: 0 0 20px rgba(129, 140, 248, 0.4);
+  }
+  50% {
+    text-shadow: 0 0 28px rgba(129, 140, 248, 0.7);
+  }
+}
+
+.loading-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  padding: 3rem 2rem;
+  background: linear-gradient(to top, rgba(15, 23, 42, 0.96), rgba(30, 27, 75, 0.64), transparent);
+}
+
+.loading-container {
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.loading-step {
+  background: rgba(15, 23, 42, 0.82);
+  border: 1px solid rgba(165, 180, 252, 0.6);
+  border-radius: 16px;
+  padding: 1.2rem;
+  min-height: 70px;
+  font-size: 1rem;
+  color: #e0e7ff;
+  text-align: center;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 2rem;
+  font-weight: 400;
+  letter-spacing: 1px;
+  font-family: Inter, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  animation: fadeIn 0.5s forwards;
+  line-height: 1.8;
+  transition: opacity 0.3s ease-in-out;
+}
+
+.loading-progress-wrapper {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.loading-progress-bar {
+  width: 100%;
+  max-width: 500px;
+  height: 32px;
+  border-radius: 20px;
+  color: #a5b4fc;
+  border: 2px solid currentColor;
+  position: relative;
+  background: rgba(15, 23, 42, 0.62);
+  box-shadow: 0 0 22px rgba(99, 102, 241, 0.32);
+}
+
+.loading-progress-fill {
+  position: absolute;
+  margin: 3px;
+  inset: 0 100% 0 0;
+  border-radius: inherit;
+  background: currentColor;
+  transition: inset 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 0 20px currentColor;
+  will-change: inset;
+}
+
+.loading-status {
+  text-align: center;
+  font-size: 0.85rem;
+  color: #c7d2fe;
+  letter-spacing: 0.5px;
+  min-height: 1.5rem;
+  animation: pulse 2s infinite;
+  font-weight: 500;
+  font-family: Inter, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+}
+
+@keyframes fadeIn {
+  to { opacity: 1; }
+}
+
+
+/* 毛玻璃卡片效果 - 使用动态透明度 */
+.glass-card {
+  background: rgba(255, 255, 255, var(--glass-bg-opacity, 0.8)) !important;
+  backdrop-filter: blur(12px) saturate(180%);
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  transition: all var(--transition-duration, 300ms) ease;
+}
+
+.dark .glass-card {
+  background: rgba(24, 24, 27, var(--glass-bg-opacity, 0.8)) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* 侧边栏毛玻璃效果 */
+.glass-sidebar {
+  background: rgba(255, 255, 255, var(--acrylic-opacity, 0.8)) !important;
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  transition: all var(--transition-duration, 300ms) ease;
+}
+
+.dark .glass-sidebar {
+  background: rgba(24, 24, 27, var(--acrylic-opacity, 0.8)) !important;
+}
+
+/* 平滑过渡 */
+* {
+  transition-duration: var(--transition-duration, 300ms);
+}
+
+
+/* 深邃模式增强样式 */
+html.dark.midnight {
+  /* 更深的背景色 */
+  --background: rgba(0, 0, 0, 1);
+  --foreground: rgba(244, 244, 245, 1);
+}
+
+html.dark.midnight .glass-card {
+  background: rgba(0, 0, 0, var(--glass-bg-opacity, 0.85)) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+}
+
+html.dark.midnight .glass-sidebar {
+  background: rgba(0, 0, 0, var(--acrylic-opacity, 0.85)) !important;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* 深邃模式下的文字对比度增强 */
+html.dark.midnight {
+  color-scheme: dark;
+}
+
+html.dark.midnight body {
+  background: 
+    radial-gradient(at 0% 0%, rgba(16, 185, 129, 0.12) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, rgba(99, 102, 241, 0.12) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, rgba(236, 72, 153, 0.12) 0px, transparent 50%),
+    radial-gradient(at 0% 100%, rgba(168, 85, 247, 0.12) 0px, transparent 50%),
+    #000000;
+}
+
+/* App page surfaces use the same theme tokens, including behind custom wallpapers. */
+.theme-page-shell {
+  background-color: color-mix(in srgb, var(--card) 88%, transparent);
+}
+
+html.has-custom-background .theme-page-shell {
+  background-color: color-mix(in srgb, var(--card) 58%, transparent);
+}
+
+html.dark .theme-page-surface [class~="bg-white"],
+html.dark .theme-page-surface [class~="bg-white/30"],
+html.dark .theme-page-surface [class~="bg-white/40"],
+html.dark .theme-page-surface [class~="bg-white/50"],
+html.dark .theme-page-surface [class~="bg-white/60"],
+html.dark .theme-page-surface [class~="bg-white/70"],
+html.dark .theme-page-surface [class~="bg-white/80"],
+html.dark .theme-page-surface [class~="bg-white/90"],
+html.dark .theme-page-surface [class*="bg-slate-50"],
+html.dark .theme-page-surface [class*="bg-slate-100"] {
+  background-color: color-mix(in srgb, var(--card) 92%, transparent) !important;
+}
+
+html.dark .theme-page-surface [class~="text-slate-800"],
+html.dark .theme-page-surface [class~="text-slate-700"],
+html.dark .theme-page-surface [class~="text-slate-600"],
+html.dark .theme-page-surface [class~="text-gray-700"],
+html.dark .theme-page-surface [class~="text-gray-600"] {
+  color: var(--foreground) !important;
+}
+
+html.dark .theme-page-surface [class~="text-slate-500"],
+html.dark .theme-page-surface [class~="text-slate-400"],
+html.dark .theme-page-surface [class~="text-slate-300"],
+html.dark .theme-page-surface [class~="text-gray-500"],
+html.dark .theme-page-surface [class~="text-gray-400"] {
+  color: var(--muted-foreground) !important;
+}
+
+html.dark .theme-page-surface [class*="border-white/"],
+html.dark .theme-page-surface [class*="border-slate-100"],
+html.dark .theme-page-surface [class*="border-slate-200"] {
+  border-color: var(--border) !important;
+}
+
+html.dark.midnight .theme-page-surface [class~="text-indigo-500"],
+html.dark.midnight .theme-page-surface [class~="text-indigo-600"],
+html.dark.midnight .theme-page-surface [class~="text-purple-600"] {
+  color: var(--primary) !important;
+}
+
+.dashboard-hero {
+  background: linear-gradient(135deg, #4f46e5 0%, #6366f1 52%, #7c3aed 100%);
+}
+
+html.dark .dashboard-hero {
+  background: linear-gradient(135deg, #312e81 0%, #4338ca 52%, #581c87 100%);
+}
+
+html.dark.midnight .dashboard-hero {
+  background: linear-gradient(135deg, #064e3b 0%, #047857 52%, #0f766e 100%);
+}
+
+html.no-transitions *,
+html.no-transitions *::before,
+html.no-transitions *::after,
+html.reduce-motion *,
+html.reduce-motion *::before,
+html.reduce-motion *::after {
+  transition: none !important;
+  animation: none !important;
+  scroll-behavior: auto !important;
+}
+
+html.reduced-motion .loading-video,
+html.reduce-motion .loading-video,
+.loading-screen.motion-disabled .loading-video {
+  display: none;
+}
+
+.loading-screen.motion-disabled .loading-fallback-bg,
+.loading-screen.motion-disabled .loading-logo,
+.loading-screen.motion-disabled .loading-status {
+  animation: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .loading-video {
+    display: none;
+  }
+}

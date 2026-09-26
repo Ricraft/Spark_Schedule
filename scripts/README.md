@@ -232,17 +232,9 @@ cat data/migration_report_*.txt
 
 ## 相关文档
 
-- [数据标准化设计文档](../.kiro/specs/data-format-fix/design.md)
-- [数据格式修复需求文档](../.kiro/specs/data-format-fix/requirements.md)
-- [CourseDataNormalizer API文档](../backend/utils/data_normalizer.py)
+- [数据标准化模块源码](../backend/utils/data_normalizer.py)
+- [开发与测试指南](../docs/DEVELOPMENT.md)
 
 ## 支持
 
 如有问题或建议，请查看项目文档或联系开发团队。
-
-
-url：https://fucaixie.xyz
-密钥:sk-LsDFOVj68L0W1PUy1PKdCo4JB7JAEBDSQW3eom1X9CDWYZKx
-部分教程：https://jiaocheng.8888891.xyz
-等百款
-老板 新年快乐 新的一年发发发 除了这个模型还有好多模型 一天的话 我没有限制全部可以用 麻烦你给我一个好评吧 确定收货一下 谢谢

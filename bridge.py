@@ -1,4 +1,4 @@
-﻿# cleaned comment
+# cleaned comment
 
 import sys
 
@@ -15,9 +15,6 @@ import traceback
 import time
 import shutil
 import subprocess
-import base64
-import hashlib
-
 from datetime import date, datetime
 
 from PyQt6.QtCore import QObject, pyqtSlot, pyqtSignal, QThread, QTimer
@@ -58,6 +55,21 @@ for p in paths_to_add:
 
         sys.path.insert(0, p)
 
+
+from backend.bridge_security import (
+    SECRET_SETTING_FIELDS,
+    backup_key_path,
+    encrypt_backup_payload,
+    get_weather_request,
+    normalize_ai_endpoint,
+    normalize_weather_host,
+    post_ai_request,
+    redact_settings,
+    redact_sensitive_payload,
+    restore_secret_placeholders,
+    validate_public_weather_host,
+    validate_settings_file_path,
+)
 
 
 # cleaned comment
@@ -212,6 +224,8 @@ class AppBridge(QObject):
         self._initialization_completed = False
         self._task_manager_init_lock = threading.Lock()
         self._task_manager_init_in_progress = False
+        self._approved_ai_endpoints = {normalize_ai_endpoint("https://api.openai.com/v1")}
+        self._approved_weather_hosts = {"devapi.qweather.com"}
 
         # Synchronous fallback init so settings APIs are available immediately.
         try:
@@ -232,6 +246,80 @@ class AppBridge(QObject):
         payload = {"status": "error", "message": message, "error_code": error_code}
         payload.update(extra)
         return json.dumps(payload, ensure_ascii=False)
+
+    def _public_settings(self, settings=None) -> dict:
+        """Return settings safe for WebView serialization."""
+        if settings is None:
+            manager = getattr(self, "settings_manager", None)
+            settings = manager.get_settings_dict() if manager else getattr(self, "settings", {})
+        return redact_settings(settings)
+
+    def _restore_secret_placeholders(self, updates: dict) -> dict:
+        """Keep stored credentials when the WebView echoes the fixed masked value."""
+        manager = getattr(self, "settings_manager", None)
+        current = manager.get_settings_dict() if manager else getattr(self, "settings", {})
+        return restore_secret_placeholders(updates, current)
+
+    def _validated_settings_updates(self, updates: dict) -> dict:
+        safe = self._restore_secret_placeholders(updates)
+        host = safe.get("weather_host_url")
+        if host:
+            safe["weather_host_url"] = normalize_weather_host(host)
+        return safe
+
+    def _confirm_native_action(self, title: str, message: str) -> bool:
+        """Require a native Qt confirmation on the GUI thread for sensitive actions."""
+        try:
+            from PyQt6.QtCore import QThread, Qt
+            from PyQt6.QtWidgets import QApplication, QMessageBox, QWidget
+
+            app = QApplication.instance()
+            if app is None or QThread.currentThread() != app.thread():
+                logger.warning("Native confirmation unavailable outside the Qt GUI thread")
+                return False
+
+            candidate = getattr(self, "_main_window_instance", None)
+            parent = candidate if isinstance(candidate, QWidget) else None
+            box = QMessageBox(parent)
+            box.setIcon(QMessageBox.Icon.Warning)
+            box.setWindowTitle(str(title))
+            box.setTextFormat(Qt.TextFormat.PlainText)
+            box.setText(str(message))
+            box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            box.setDefaultButton(QMessageBox.StandardButton.No)
+            box.button(QMessageBox.StandardButton.Yes).setText("确认")
+            box.button(QMessageBox.StandardButton.No).setText("取消")
+            return box.exec() == QMessageBox.StandardButton.Yes
+        except Exception as e:
+            logger.warning(f"Native confirmation unavailable ({type(e).__name__})")
+            return False
+
+    def _confirm_ai_endpoint(self, endpoint: str) -> bool:
+        transport = "HTTPS" if endpoint.lower().startswith("https://") else "本机 HTTP（仅 loopback）"
+        return self._confirm_native_action(
+            "确认 AI 服务端点",
+            f"即将通过{transport}向以下精确端点发送 AI API Key：\n{endpoint}\n是否继续？",
+        )
+
+    def _approve_ai_endpoint(self, base_url: str) -> bool:
+        endpoint = normalize_ai_endpoint(base_url)
+        if endpoint in self._approved_ai_endpoints:
+            return True
+        if not self._confirm_ai_endpoint(endpoint):
+            return False
+        self._approved_ai_endpoints.add(endpoint)
+        return True
+
+    def _authorize_weather_host(self, host: str) -> str:
+        safe_host = validate_public_weather_host(host)
+        if safe_host not in self._approved_weather_hosts:
+            if not self._confirm_native_action(
+                "确认天气 API 主机",
+                f"天气 API Key 将通过 HTTPS 发送到以下主机：\n{safe_host}\n是否继续？",
+            ):
+                raise PermissionError("Weather API host confirmation is required")
+            self._approved_weather_hosts.add(safe_host)
+        return safe_host
 
     def __del__(self):
         """Release thread pool resources."""
@@ -387,35 +475,22 @@ class AppBridge(QObject):
                     else:
                         snapshot["data"][key] = [] if key in ("courses", "tasks", "course_groups", "gpa_records") else {}
                 except Exception as e:
-                    logger.info(f"Failed to collect {key} data: {e}")
-                    snapshot["data"][key] = [] if key in ("courses", "tasks", "course_groups", "gpa_records") else {}
+                    logger.warning(f"Cannot collect {key} for backup ({type(e).__name__})")
+                    raise RuntimeError(f"Cannot back up existing {key} data") from e
             return snapshot
-        except Exception as e:
-            logger.info(f"Critical error in _collect_data_snapshot: {e}")
-            # Return minimal valid snapshot
-            return {
-                "created_at": datetime.now().isoformat(),
-                "schema": "spark_schedule_backup_v1",
-                "data": {}
-            }
+        except Exception:
+            # An incomplete snapshot must never be treated as a successful backup,
+            # especially before reset_app_data removes the original files.
+            raise
 
     def _encrypt_backup_payload(self, raw_bytes: bytes) -> bytes:
-        """Encrypt bytes for .bak file. Prefer Fernet, fallback to xor stream."""
-        try:
-            from cryptography.fernet import Fernet
-            key_file = os.path.join(self.backup_dir, 'backup.key')
-            if os.path.exists(key_file):
-                with open(key_file, 'rb') as f:
-                    key = f.read().strip()
-            else:
-                key = Fernet.generate_key()
-                with open(key_file, 'wb') as f:
-                    f.write(key)
-            return Fernet(key).encrypt(raw_bytes)
-        except Exception:
-            secret = hashlib.sha256((self.settings_file + self.data_dir).encode('utf-8')).digest()
-            xored = bytes(b ^ secret[i % len(secret)] for i, b in enumerate(raw_bytes))
-            return base64.b64encode(xored)
+        """Encrypt .bak contents using Fernet and a private per-user key location."""
+        return encrypt_backup_payload(
+            raw_bytes,
+            backup_key_path(),
+            self.backup_dir,
+            legacy_key_file=os.path.join(self.backup_dir, "backup.key"),
+        )
 
     def _create_encrypted_backup(self, reason: str = "auto") -> str:
         """Create encrypted .bak mirror file and return path."""
@@ -437,10 +512,8 @@ class AppBridge(QObject):
             logger.info(f"Backup created successfully: {backup_path}")
             return backup_path
         except Exception as e:
-            logger.info(f"Failed to create encrypted backup: {e}")
-            import traceback
-            traceback.print_exc()
-            # Return empty string to indicate failure
+            logger.warning(f"Failed to create encrypted backup ({type(e).__name__})")
+            # Return empty string to indicate failure without logging key or payload details.
             return ""
 
     def _cleanup_backup_files(self, retention_days: int):
@@ -1377,18 +1450,17 @@ class AppBridge(QObject):
 
     @pyqtSlot(str, result=str)
     def analyze_task_with_ai(self, user_input):
-        """Use AI to parse user input into structured tasks with robust categorization and context awareness."""
+        """Use AI to parse user input into one or more structured tasks."""
         try:
             if not user_input or not str(user_input).strip():
-                return json.dumps({"status": "error", "message": "杈撳叆鍐呭涓嶈兘涓虹┖"}, ensure_ascii=False)
+                return json.dumps({"status": "error", "message": "输入内容不能为空"}, ensure_ascii=False)
 
-            # 1. 鍔犺浇閰嶇疆
+            # 1) Load AI settings (task-specific first, then legacy fallback).
             try:
                 settings = self.settings_manager.get_settings_dict() if self.settings_manager else self.load_settings()
             except Exception:
                 settings = self.load_settings()
 
-            # 优先使用任务解析专用配置，兼容历史通用字段
             task_parsing_enabled = settings.get('ai_task_parsing_enabled', True)
             if task_parsing_enabled is False:
                 logger.info("[AI] ai_task_parsing_enabled is false, but analyze_task_with_ai was called; continue for compatibility")
@@ -1399,8 +1471,8 @@ class AppBridge(QObject):
 
             base_url = str(settings.get('ai_task_base_url') or settings.get('ai_base_url') or 'https://api.openai.com/v1').strip()
             model = str(settings.get('ai_task_model') or settings.get('ai_model') or 'gpt-3.5-turbo').strip()
-            
-            # 2. 鏋勯€犲寮哄瀷涓婁笅鏂?
+
+            # 2) Build context.
             now = datetime.now()
             weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
             context_info = {
@@ -1409,131 +1481,223 @@ class AppBridge(QObject):
                 "courses": [],
                 "semester_info": {}
             }
-            
+
             try:
                 courses_data = self.get_courses()
                 if courses_data and courses_data != "[]":
                     courses = json.loads(courses_data)
                     course_names = list(set([c.get('name', '') for c in courses if c.get('name')]))
-                    context_info["courses"] = sorted(course_names)[:30] 
+                    context_info["courses"] = sorted(course_names)[:30]
             except Exception as e:
                 logger.warning(f"[AI] Failed to collect course context: {e}")
 
-            # 3. 鏋勯€犵簿缁嗗寲 System Prompt
+            # 3) System prompt.
             system_prompt = str(settings.get('ai_task_prompt') or settings.get('ai_system_prompt') or '').strip()
             if not system_prompt:
                 system_prompt = (
-                    "浣犳槸涓€涓笓涓氱殑鏃ョ▼浠诲姟鎻愬彇鍔╂墜銆傝灏嗙敤鎴风殑鑷劧璇█杈撳叆杞崲涓烘爣鍑嗙殑 JSON 浠诲姟鏁扮粍銆俓n"
-                    "銆愪弗鏍煎瓧娈靛畾涔夈€戯細\n"
-                    "- title: 浠诲姟绠€鐭爣棰榎n"
-                    "- course_name: 濡傛灉鏄绋嬬浉鍏充换鍔★紝蹇呴』浠?'Available courses' 涓€夋嫨鏈€鍖归厤鐨勫悕绉帮紱鍚﹀垯濉?'Personal'銆俓n"
-                    "- deadline: 鎴鏃堕棿锛屾牸寮忎负 'YYYY-MM-DD HH:mm'銆傚埄鐢?current_time 瑙ｆ瀽鐩稿鏃堕棿锛堝'鏄庡ぉ'銆?涓嬪懆浜?锛夈€俓n"
-                    "- priority: 浼樺厛绾э紝浠?[normal, high, urgent] 涓€夋嫨銆傜揣鎬ユ垨蹇呴』瀹屾垚鐨勪换鍔¤涓?high/urgent銆俓n"
-                    "- is_exam: 甯冨皵鍊硷紝鏄惁涓鸿€冭瘯銆佹祴璇曟垨鏋侀噸瑕佺殑鎴鏃ユ湡銆俓n"
-                    "- tags: 瀛楃涓叉暟缁勶紝鐢ㄤ簬褰掔被銆備緥濡?['鐢熸椿'], ['杩愬姩'], ['瀛︿範'], ['宸ヤ綔'], ['绀句氦'] 绛夈€俓n"
-                    "- description: 浠诲姟璇︾粏鎻忚堪鎴栧娉ㄣ€俓n"
-                    "銆愰€昏緫瑕佹眰銆戯細\n"
-                    "1. 蹇呴』杩斿洖 JSON 鏁扮粍鏍煎紡锛歔{...}]\n"
-                    "2. 鍗充娇鍙湁涓€涓换鍔′篃蹇呴¶鍖呰鍦ㄦ暟缁勪腑銆俓n"
-                    "3. 濡傛灉杈撳叆鍖呭惈澶氫釜浠诲姟锛岃鍑嗙‘鎷嗗垎銆俓n"
-                    "4. 浠呰緭鍑?JSON锛屼笉瑕佸寘鍚换浣曡В閲婃€ф枃瀛椼€俓n"
+                    "你是专业的任务提取助手。请把用户输入转换为任务 JSON 数组。\n"
+                    "字段：title, course_name, deadline(YYYY-MM-DD HH:mm), priority(normal/high/urgent), is_exam(bool), tags(array), description。\n"
+                    "规则：\n"
+                    "1) 必须返回 JSON 数组，即使只有一条也要用 [ ... ]。\n"
+                    "2) 如果输入里有多个任务，必须拆成多条。\n"
+                    "3) 仅输出 JSON，不要解释文本。\n"
                 )
 
-            # 4. API URL 褰掍竴鍖?
-            api_url = base_url.rstrip('/')
-            if not any(endpoint in api_url.lower() for endpoint in ['/chat/completions', '/v1/chat', '/api/chat']):
-                if not api_url.endswith('/v1'): api_url = f"{api_url}/v1"
-                api_url = f"{api_url}/chat/completions"
-
-            # 5. 鍑嗗璇锋眰 Payload
-            user_message = (
-                f"User Input: \"{user_input}\"\n\n"
-                f"Context:\n"
-                f"- Current Time: {context_info['current_time']} ({context_info['day_of_week']})\n"
-                f"- Available Courses: {', '.join(context_info['courses']) if context_info['courses'] else 'None'}\n"
-            )
-            
-            payload = {
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_message},
-                ],
-                "temperature": 0.1,
-            }
-
-            # 6. 璋冪敤 API
+            # 4) Validate the transport and endpoint before any credential is attached.
             import requests
             import re
-            
-            headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-            response = requests.post(api_url, headers=headers, json=payload, timeout=30)
-            
-            if response.status_code != 200:
-                return json.dumps({"status": "error", "message": f"AI鏈嶅姟璇锋眰澶辫触({response.status_code})"}, ensure_ascii=False)
 
-            ai_content = response.json().get('choices', [{}])[0].get('message', {}).get('content', '').strip()
-            
-            # 7. 鍋ュ．鐨?JSON 鎻愬彇
-            json_str = ai_content
-            if "```json" in ai_content:
-                json_str = ai_content.split("```json", 1)[1].split("```", 1)[0].strip()
-            elif "```" in ai_content:
-                json_str = ai_content.split("```", 1)[1].split("```", 1)[0].strip()
-            else:
-                # 灏濊瘯鐢ㄦ鍒欏尮閰嶆暟缁勮竟鐣?
-                match = re.search(r'(\[[\s\S]*\])', ai_content)
-                if match: json_str = match.group(1)
+            def _extract_task_array(ai_content: str):
+                json_str = ai_content
+                if "```json" in ai_content:
+                    json_str = ai_content.split("```json", 1)[1].split("```", 1)[0].strip()
+                elif "```" in ai_content:
+                    json_str = ai_content.split("```", 1)[1].split("```", 1)[0].strip()
+                else:
+                    match = re.search(r'(\[[\s\S]*\])', ai_content)
+                    if not match:
+                        match = re.search(r'(\{[\s\S]*\})', ai_content)
+                    if match:
+                        json_str = match.group(1)
 
-            try:
-                task_data = json.loads(json_str)
-                if isinstance(task_data, dict): task_data = [task_data]
-            except Exception:
-                return json.dumps({"status": "error", "message": "AI 返回格式异常，解析失败"}, ensure_ascii=False)
+                parsed = json.loads(json_str)
+                if isinstance(parsed, dict):
+                    parsed = [parsed]
+                if not isinstance(parsed, list):
+                    raise ValueError("AI 返回不是任务数组")
+                return parsed
 
-            # 8. 规范化与数据补全
+            def _call_ai_once(text: str):
+                user_message = (
+                    f"User Input: \"{text}\"\n\n"
+                    f"Context:\n"
+                    f"- Current Time: {context_info['current_time']} ({context_info['day_of_week']})\n"
+                    f"- Available Courses: {', '.join(context_info['courses']) if context_info['courses'] else 'None'}\n"
+                )
+
+                payload = {
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_message},
+                    ],
+                    "temperature": 0.1,
+                }
+
+                resp = post_ai_request(
+                    requests,
+                    base_url,
+                    api_key,
+                    payload,
+                    timeout=30,
+                    approved_endpoints=self._approved_ai_endpoints,
+                    confirm_callback=self._confirm_ai_endpoint,
+                )
+                if resp.status_code != 200:
+                    raise RuntimeError(f"AI服务请求失败({resp.status_code})")
+
+                content_local = resp.json().get('choices', [{}])[0].get('message', {}).get('content', '').strip()
+                return _extract_task_array(content_local), content_local
+
+            # First pass parse.
+            task_data, ai_content = _call_ai_once(str(user_input).strip())
+            segmented_fallback = False
+
+            # Fallback: if likely multi-task input but only one task parsed, split and parse per segment.
+            raw_input = str(user_input).strip()
+            segments = [seg.strip() for seg in re.split(r'[，,；;。\n]+', raw_input) if seg and seg.strip()]
+            time_hits = re.findall(r'(?:上午|下午|晚上|中午|凌晨)?\s*\d{1,2}\s*(?:点|:|：)\s*\d{0,2}', raw_input)
+
+            if len(task_data) <= 1 and len(segments) > 1 and len(time_hits) >= 2:
+                date_hint_pattern = re.compile(r'(今天|明天|后天|大后天|本周[一二三四五六日天]|下周[一二三四五六日天]|周[一二三四五六日天])')
+                local_time_pattern = re.compile(r'(上午|下午|晚上|中午|凌晨|\d{1,2}\s*(?:点|:|：))')
+
+                date_hint = ""
+                normalized_segments = []
+                for seg in segments:
+                    seg_text = seg.strip()
+                    if not seg_text:
+                        continue
+                    m = date_hint_pattern.search(seg_text)
+                    if m:
+                        date_hint = m.group(1)
+                    elif date_hint and local_time_pattern.search(seg_text):
+                        seg_text = f"{date_hint}{seg_text}"
+                    normalized_segments.append(seg_text)
+
+                recovered = []
+                recovered_raw = [ai_content]
+                for seg_text in normalized_segments:
+                    try:
+                        seg_tasks, seg_raw = _call_ai_once(seg_text)
+                        recovered_raw.append(seg_raw)
+                        for item in seg_tasks:
+                            if isinstance(item, dict):
+                                recovered.append(item)
+                    except Exception as seg_error:
+                        logger.warning(f"[AI] Segment parse failed ({type(seg_error).__name__})")
+
+                if len(recovered) > len(task_data):
+                    task_data = recovered
+                    ai_content = "\n---SEGMENTED_PARSE---\n".join(recovered_raw)[:4000]
+                    segmented_fallback = True
+
+            # 5) Normalize and deduplicate.
             normalized_tasks = []
+            seen = set()
             for idx, task in enumerate(task_data):
-                # 琛ュ叏 deadline 鏍煎紡
+                if not isinstance(task, dict):
+                    continue
+
                 deadline = str(task.get("deadline", "")).strip()
-                if deadline and len(deadline) == 10:  # 鍙湁鏃ユ湡 YYYY-MM-DD
+                if deadline and len(deadline) == 10:
                     deadline += " 23:59"
-                
-                # 澶勭悊璇剧▼鍚嶇О閫昏緫
+
                 course_name = str(task.get("course_name", "Personal")).strip()
                 if course_name.lower() == "personal" or not course_name:
                     course_name = ""
-                
-                normalized = {
+
+                title = str(task.get("title", "")).strip() or f"新任务{idx + 1}"
+                priority = str(task.get("priority", "normal")).lower().strip()
+                if priority not in {"normal", "high", "urgent"}:
+                    priority = "normal"
+
+                tags = task.get("tags", [])
+                if not isinstance(tags, list):
+                    tags = []
+
+                dedup_key = (title, deadline, course_name)
+                if dedup_key in seen:
+                    continue
+                seen.add(dedup_key)
+
+                normalized_tasks.append({
                     "id": str(uuid.uuid4()),
-                    "title": str(task.get("title", "")).strip() or f"鏂颁换鍔?{idx+1}",
+                    "title": title,
                     "course_name": course_name,
                     "deadline": deadline,
-                    "priority": str(task.get("priority", "normal")).lower(),
+                    "priority": priority,
                     "is_exam": bool(task.get("is_exam", False)),
-                    "tags": task.get("tags", []),
+                    "tags": tags,
                     "description": str(task.get("description", "")).strip(),
                     "status": "todo"
-                }
-                normalized_tasks.append(normalized)
+                })
+
+            if not normalized_tasks:
+                return json.dumps({"status": "error", "message": "AI 未能解析出有效任务"}, ensure_ascii=False)
 
             return json.dumps({
-                "status": "success", 
+                "status": "success",
                 "data": normalized_tasks,
                 "ai_info": {
                     "model": model,
                     "count": len(normalized_tasks),
                     "context_time": context_info['current_time'],
                     "context_used": context_info,
+                    "segmented_fallback": segmented_fallback,
                     "raw_response": ai_content[:2000],
                 }
             }, ensure_ascii=False)
 
         except Exception as e:
-            logger.info(f"[AI] Task parse error: {e}")
-            traceback.print_exc()
-            return json.dumps({"status": "error", "message": f"绯荤粺寮傚父: {str(e)}"}, ensure_ascii=False)
+            logger.info(f"[AI] Task parse failed ({type(e).__name__})")
+            return json.dumps({"status": "error", "message": "AI 任务解析失败，请检查服务地址和网络"}, ensure_ascii=False)
 
+    def _analyze_task_with_ai_async_impl(self, user_input, progress_callback=None):
+        """Background wrapper for AI task parsing to avoid blocking UI thread."""
+        if progress_callback:
+            progress_callback(10)
+        result_json = self.analyze_task_with_ai(user_input)
+        if progress_callback:
+            progress_callback(100)
+        try:
+            parsed = json.loads(result_json)
+            if isinstance(parsed, dict):
+                return parsed
+            return {"status": "error", "message": "AI 返回格式异常"}
+        except Exception:
+            return {"status": "error", "message": "AI 返回格式异常", "raw": str(result_json)[:2000]}
+
+    @pyqtSlot(str, result=str)
+    def analyze_task_with_ai_async(self, user_input):
+        """Start AI task parsing in background and return operation id immediately."""
+        try:
+            settings = self.settings_manager.get_settings_dict() if self.settings_manager else self.load_settings()
+            base_url = settings.get("ai_task_base_url") or settings.get("ai_base_url") or "https://api.openai.com/v1"
+            if not self._approve_ai_endpoint(str(base_url)):
+                return self._error_response("AI 服务端点未获本机确认", "AI_ENDPOINT_NOT_APPROVED")
+            operation_id = f"ai_task_parse:{int(time.time()*1000)}"
+            self._run_async_operation(operation_id, self._analyze_task_with_ai_async_impl, user_input)
+            return json.dumps({
+                "status": "pending",
+                "operation_id": operation_id
+            }, ensure_ascii=False)
+        except Exception as e:
+            logger.error(f"[AI] analyze_task_with_ai_async failed: {e}", exc_info=True)
+            return json.dumps({
+                "status": "error",
+                "message": f"AI任务解析后台启动失败: {str(e)}"
+            }, ensure_ascii=False)
 
     @pyqtSlot(str, result=str)
     def get_learning_suggestions_with_ai(self, context_json):
@@ -1576,13 +1740,7 @@ class AppBridge(QObject):
                     "禁止输出 Markdown 或解释文本。"
                 )
 
-            # 3) Normalize endpoint.
-            api_url = base_url.rstrip('/')
-            if not any(endpoint in api_url.lower() for endpoint in ['/chat/completions', '/v1/chat', '/api/chat']):
-                if not api_url.endswith('/v1'):
-                    api_url = f"{api_url}/v1"
-                api_url = f"{api_url}/chat/completions"
-
+            # 3) Endpoint transport is validated before attaching the API key.
             # 4) Build payload.
             now = datetime.now().strftime("%Y-%m-%d %H:%M")
             compact_context = {
@@ -1609,8 +1767,15 @@ class AppBridge(QObject):
             import requests
             import re
 
-            headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-            response = requests.post(api_url, headers=headers, json=payload, timeout=30)
+            response = post_ai_request(
+                requests,
+                base_url,
+                api_key,
+                payload,
+                timeout=30,
+                approved_endpoints=self._approved_ai_endpoints,
+                confirm_callback=self._confirm_ai_endpoint,
+            )
             if response.status_code != 200:
                 return json.dumps({"status": "error", "message": f"AI学习建议请求失败({response.status_code})"}, ensure_ascii=False)
 
@@ -1699,9 +1864,44 @@ class AppBridge(QObject):
             }, ensure_ascii=False)
 
         except Exception as e:
-            logger.info(f"[AI] Learning suggestion error: {e}")
-            traceback.print_exc()
-            return json.dumps({"status": "error", "message": f"系统异常: {str(e)}"}, ensure_ascii=False)
+            logger.info(f"[AI] Learning suggestion failed ({type(e).__name__})")
+            return json.dumps({"status": "error", "message": "AI 学习建议失败，请检查服务地址和网络"}, ensure_ascii=False)
+
+    def _get_learning_suggestions_with_ai_async_impl(self, context_json, progress_callback=None):
+        """Background wrapper for AI learning suggestions to avoid blocking UI thread."""
+        if progress_callback:
+            progress_callback(10)
+        result_json = self.get_learning_suggestions_with_ai(context_json)
+        if progress_callback:
+            progress_callback(100)
+        try:
+            parsed = json.loads(result_json)
+            if isinstance(parsed, dict):
+                return parsed
+            return {"status": "error", "message": "AI 返回格式异常"}
+        except Exception:
+            return {"status": "error", "message": "AI 返回格式异常", "raw": str(result_json)[:2000]}
+
+    @pyqtSlot(str, result=str)
+    def get_learning_suggestions_with_ai_async(self, context_json):
+        """Start AI suggestion generation in background and return operation id immediately."""
+        try:
+            settings = self.settings_manager.get_settings_dict() if self.settings_manager else self.load_settings()
+            base_url = settings.get("ai_learning_base_url") or settings.get("ai_base_url") or "https://api.openai.com/v1"
+            if not self._approve_ai_endpoint(str(base_url)):
+                return self._error_response("AI 服务端点未获本机确认", "AI_ENDPOINT_NOT_APPROVED")
+            operation_id = f"ai_learning_suggest:{int(time.time()*1000)}"
+            self._run_async_operation(operation_id, self._get_learning_suggestions_with_ai_async_impl, context_json)
+            return json.dumps({
+                "status": "pending",
+                "operation_id": operation_id
+            }, ensure_ascii=False)
+        except Exception as e:
+            logger.error(f"[AI] get_learning_suggestions_with_ai_async failed: {e}", exc_info=True)
+            return json.dumps({
+                "status": "error",
+                "message": f"AI学习建议后台启动失败: {str(e)}"
+            }, ensure_ascii=False)
 
 
 
@@ -1977,7 +2177,7 @@ class AppBridge(QObject):
 
         try:
 
-            settings_dict = new_settings.to_dict()
+            settings_dict = self._public_settings(new_settings.to_dict())
 
             # cleaned comment
 
@@ -1985,7 +2185,7 @@ class AppBridge(QObject):
 
                 'timestamp': datetime.now().isoformat(),
 
-                'changes': changes,
+                'changes': redact_sensitive_payload(changes),
 
                 'settings': settings_dict
 
@@ -2039,9 +2239,9 @@ class AppBridge(QObject):
 
         try:
 
-            changes = event.data.get('updates', {})
+            changes = redact_sensitive_payload(event.data.get('updates', {}))
 
-            settings_dict = self.settings_manager.get_settings_dict()
+            settings_dict = self._public_settings(self.settings_manager.get_settings_dict())
 
             
 
@@ -2436,20 +2636,20 @@ class AppBridge(QObject):
             if not hasattr(self, 'settings_manager') or self.settings_manager is None:
                 logger.warning("settings_manager not initialized, returning defaults")
                 from backend.models.schedule_settings import ScheduleSettings
-                settings_dict = ScheduleSettings().to_dict()
+                settings_dict = self._public_settings(ScheduleSettings().to_dict())
                 return self._success_response("获取设置成功", data=settings_dict, **settings_dict)
 
             
 
-            settings_dict = self.settings_manager.get_settings_dict()
+            settings_dict = self._public_settings(self.settings_manager.get_settings_dict())
             return self._success_response("获取设置成功", data=settings_dict, **settings_dict)
 
         except Exception as e:
 
-            error_msg = f"获取全局设置失败: {str(e)}"
-            logger.info(f"{error_msg}")
+            error_msg = "获取全局设置失败"
+            logger.info(f"获取全局设置失败 ({type(e).__name__})")
             from backend.models.schedule_settings import ScheduleSettings
-            settings_dict = ScheduleSettings().to_dict()
+            settings_dict = self._public_settings(ScheduleSettings().to_dict())
             return self._error_response(
                 "获取全局设置失败，已回退到默认设置",
                 "SETTINGS_GET_FAILED",
@@ -2480,13 +2680,17 @@ class AppBridge(QObject):
             elif "settings" in updates and isinstance(updates.get("settings"), dict):
                 updates = updates["settings"]
 
+            try:
+                updates = self._validated_settings_updates(updates)
+            except ValueError as e:
+                return self._error_response(str(e), "INVALID_WEATHER_HOST")
             success, error_msg = self.settings_manager.update_settings(updates)
 
             
 
             if success:
 
-                settings_dict = self.settings_manager.get_settings_dict()
+                settings_dict = self._public_settings(self.settings_manager.get_settings_dict())
                 return self._success_response("设置更新成功", data=settings_dict, settings=settings_dict)
 
             else:
@@ -2511,6 +2715,12 @@ class AppBridge(QObject):
         try:
 
             new_settings = json.loads(settings_json)
+            if not isinstance(new_settings, dict):
+                return self._error_response("设置参数必须为对象", "INVALID_PAYLOAD")
+            try:
+                new_settings = self._validated_settings_updates(new_settings)
+            except ValueError as e:
+                return self._error_response(str(e), "INVALID_WEATHER_HOST")
 
             old_settings = self.settings_manager.get_settings_dict().copy()
 
@@ -2536,7 +2746,26 @@ class AppBridge(QObject):
 
             # cleaned comment
 
-            self._apply_global_settings(new_settings)
+            runtime_apply_result = self._apply_global_settings(new_settings)
+            auto_start_error = None
+            if isinstance(runtime_apply_result, dict):
+                runtime_errors = runtime_apply_result.get("errors", {}) or {}
+                auto_start_error = runtime_errors.get("auto_start")
+                if (not auto_start_error) and ("auto_start" in new_settings) and (runtime_apply_result.get("ok") is False):
+                    auto_start_error = "开机自启动应用失败"
+
+            if "auto_start" in new_settings and auto_start_error:
+                try:
+                    self.settings_manager.update_settings({"auto_start": old_settings.get("auto_start", False)})
+                except Exception as rollback_err:
+                    logger.warning(f"auto_start rollback failed: {rollback_err}")
+                rolled_back = self._public_settings(self.settings_manager.get_settings_dict())
+                self.settingsUpdated.emit(json.dumps(rolled_back, ensure_ascii=False))
+                return json.dumps({
+                    "status": "error",
+                    "message": f"开机自启动设置失败：{auto_start_error}",
+                    "settings": rolled_back
+                }, ensure_ascii=False)
 
             
             # 检测天气位置变化，自动刷新天气和诗词数据
@@ -2553,7 +2782,7 @@ class AppBridge(QObject):
                     logger.info("天气位置未变化，跳过刷新")
             
             # Get updated settings
-            updated_settings = self.settings_manager.get_settings_dict()
+            updated_settings = self._public_settings(self.settings_manager.get_settings_dict())
             
             # Emit settingsUpdated signal for realtime frontend updates
             self.settingsUpdated.emit(json.dumps(updated_settings, ensure_ascii=False))
@@ -2583,9 +2812,9 @@ class AppBridge(QObject):
 
         except Exception as e:
 
-            logger.info(f"Failed to load settings: {e}")
+            logger.info(f"Settings update failed ({type(e).__name__})")
 
-            return json.dumps({"status": "error", "message": str(e)}, ensure_ascii=False)
+            return json.dumps({"status": "error", "message": "设置更新失败"}, ensure_ascii=False)
 
     
 
@@ -2708,6 +2937,7 @@ class AppBridge(QObject):
         """Apply global settings to integration manager and runtime."""
 
         logger.info("Applying global settings...")
+        runtime_result = {"ok": True, "errors": {}}
 
         
 
@@ -2728,10 +2958,15 @@ class AppBridge(QObject):
         # Apply runtime-effective settings immediately in main window.
         if self._main_window_instance:
             try:
-                self._main_window_instance.apply_runtime_settings(settings)
+                runtime_apply_result = self._main_window_instance.apply_runtime_settings(settings)
+                if isinstance(runtime_apply_result, dict):
+                    runtime_result = runtime_apply_result
                 logger.info("Applied runtime settings to main window")
             except Exception as e:
                 logger.warning(f"Runtime settings apply failed: {e}")
+                runtime_result = {"ok": False, "errors": {"runtime": str(e)}}
+
+        return runtime_result
 
     
 
@@ -2763,7 +2998,7 @@ class AppBridge(QObject):
         try:
 
             if self.settings_manager.reset_to_defaults():
-                settings_dict = self.settings_manager.get_settings_dict()
+                settings_dict = self._public_settings(self.settings_manager.get_settings_dict())
                 return self._success_response("设置已重置为默认值", data=settings_dict, settings=settings_dict)
             else:
                 return self._error_response("閲嶇疆鍏ㄥ眬璁剧疆澶辫触", "SETTINGS_RESET_FAILED")
@@ -2842,88 +3077,60 @@ class AppBridge(QObject):
     
 
     @pyqtSlot(str, result=str)
-
     def export_settings(self, export_path):
+        """Export a redacted settings JSON after a native confirmation."""
+        try:
+            safe_path = validate_settings_file_path(export_path, self.data_dir, for_export=True)
+        except ValueError as e:
+            return self._error_response(str(e), "INVALID_SETTINGS_PATH")
 
-        """Export settings to file."""
+        if not self._confirm_native_action(
+            "导出设置",
+            f"将不包含 API 密钥的设置 JSON 保存到以下本机路径？\n{safe_path}",
+        ):
+            return self._error_response("已取消设置导出", "USER_CONFIRMATION_REQUIRED")
 
         try:
-
-            if self.settings_manager.export_settings(export_path):
-
-                return json.dumps({
-
-                    "status": "success", 
-
-                    "message": f"Settings exported to {export_path}"
-
-                }, ensure_ascii=False)
-
-            else:
-
-                return json.dumps({
-
-                    "status": "error", 
-
-                    "message": "设置导出失败"
-
-                }, ensure_ascii=False)
-
-                
-
+            export_data = dict(self.settings_manager.get_settings_dict())
+            for key in SECRET_SETTING_FIELDS:
+                if key in export_data:
+                    export_data[key] = ""
+            export_data.update({
+                "secrets_redacted": True,
+                "export_timestamp": datetime.now().isoformat(),
+            })
+            self._atomic_write_json(safe_path, export_data)
+            logger.info("Settings exported with API keys redacted")
+            return self._success_response("设置已导出；API 密钥已脱敏", data={"secrets_redacted": True})
         except Exception as e:
-
-            error_msg = f"Background operation failed: {str(e)}"
-
-            logger.info(f"{error_msg}")
-
-            return json.dumps({"status": "error", "message": error_msg}, ensure_ascii=False)
+            logger.warning(f"Settings export failed ({type(e).__name__})")
+            return self._error_response("设置导出失败", "SETTINGS_EXPORT_FAILED")
 
     
 
     @pyqtSlot(str, result=str)
-
     def import_settings(self, import_path):
+        """Import a local settings JSON only after native confirmation."""
+        try:
+            safe_path = validate_settings_file_path(import_path, self.data_dir, for_export=False)
+        except ValueError as e:
+            return self._error_response(str(e), "INVALID_SETTINGS_PATH")
 
-        """Import settings from file."""
+        if not self._confirm_native_action(
+            "导入设置",
+            f"将从以下本机路径导入设置并覆盖当前设置？\n{safe_path}",
+        ):
+            return self._error_response("已取消设置导入", "USER_CONFIRMATION_REQUIRED")
 
         try:
-
-            success, error_msg = self.settings_manager.import_settings(import_path)
-
-            
-
+            success, error_msg = self.settings_manager.import_settings(safe_path)
             if success:
-
-                return json.dumps({
-
-                    "status": "success", 
-
-                    "message": f"Settings imported from {import_path} successfully",
-
-                    "settings": self.settings_manager.get_settings_dict()
-
-                }, ensure_ascii=False)
-
-            else:
-
-                return json.dumps({
-
-                    "status": "error", 
-
-                    "message": error_msg
-
-                }, ensure_ascii=False)
-
-                
-
+                settings_dict = self._public_settings(self.settings_manager.get_settings_dict())
+                return self._success_response("设置已导入", data=settings_dict, settings=settings_dict)
+            return self._error_response(error_msg or "设置导入失败", "SETTINGS_IMPORT_FAILED")
         except Exception as e:
-
-            error_msg = f"Background operation failed: {str(e)}"
-
-            logger.info(f"{error_msg}")
-
-            return json.dumps({"status": "error", "message": error_msg}, ensure_ascii=False)
+            logger.warning(f"Settings import failed ({type(e).__name__})")
+            return self._error_response("设置导入失败", "SETTINGS_IMPORT_FAILED")
 
     
 
@@ -6167,6 +6374,7 @@ class AppBridge(QObject):
                     "message": "天气 API Key 未配置，请在设置中填写"
                 }, ensure_ascii=False)
 
+            api_host = self._authorize_weather_host(api_host)
             weather_service = WeatherService(
                 api_key,
                 api_host,
@@ -6221,13 +6429,11 @@ class AppBridge(QObject):
 
         except Exception as e:
 
-            logger.info(f"get_weather failed: {e}")
-
-            traceback.print_exc()
+            logger.info(f"get_weather failed ({type(e).__name__})")
 
             return json.dumps({
                 "status": "error",
-                "message": str(e)
+                "message": "获取天气失败，请检查 API 主机、Key 和网络"
             }, ensure_ascii=False)
 
     
@@ -6259,19 +6465,22 @@ class AppBridge(QObject):
                 settings = self.load_settings()
             
             # 馃敀 浣跨敤閫氱敤榛樿鍊硷紝閬垮厤鏆撮湶涓汉 API 淇℃伅
-            api_key = settings.get('weather_api_key', '')
-            api_host = settings.get('weather_host_url', 'devapi.qweather.com')
+            api_key = str(settings.get('weather_api_key', '')).strip()
+            api_host = str(settings.get('weather_host_url', 'devapi.qweather.com')).strip() or 'devapi.qweather.com'
+            if not api_key:
+                return self._error_response("天气 API Key 未配置", "WEATHER_KEY_MISSING")
+            api_host = self._authorize_weather_host(api_host)
             
             weather_service = WeatherService(api_key, api_host, cache_file=os.path.join(self.data_dir, 'weather_cache.json'))
             
-            # 鏋勫缓鍩庡競鏌ヨURL
-            geo_api_url = f"https://{api_host}/geo/v2/city/lookup"
-            
             import requests
-            response = requests.get(
-                geo_api_url,
-                params={'location': query, 'key': api_key},
-                timeout=10
+            response = get_weather_request(
+                requests,
+                api_host,
+                "/geo/v2/city/lookup",
+                api_key,
+                {"location": query},
+                timeout=10,
             )
             
             print(f"馃攳 [Bridge] 鍩庡競鎼滅储: {query}")
@@ -6317,11 +6526,10 @@ class AppBridge(QObject):
             }, ensure_ascii=False)
             
         except Exception as e:
-            print(f"鉂?[Bridge] 鍩庡競鎼滅储寮傚父: {e}")
-            traceback.print_exc()
+            logger.warning(f"City search failed ({type(e).__name__})")
             return json.dumps({
                 "status": "error",
-                "message": f"鍩庡競鎼滅储寮傚父: {str(e)}"
+                "message": "城市搜索失败，请检查天气 API 主机和网络"
             }, ensure_ascii=False)
     
     @pyqtSlot(result=str)
@@ -6755,15 +6963,28 @@ class AppBridge(QObject):
             
             export_path = os.path.join(downloads_path, filename)
             
-            # Collect all application data
+            # Collect all application data, but never export API credentials in plaintext.
+            snapshot_data = self._collect_data_snapshot().get("data", {})
+            exported_settings = snapshot_data.get("settings") if isinstance(snapshot_data, dict) else None
+            if isinstance(exported_settings, dict):
+                for key in SECRET_SETTING_FIELDS:
+                    if key in exported_settings:
+                        exported_settings[key] = ""
             export_data = {
                 "export_timestamp": timestamp,
                 "export_date": datetime.now().isoformat(),
                 "version": "1.0",
-                "data": self._collect_data_snapshot().get("data", {})
+                "secrets_redacted": True,
+                "data": snapshot_data
             }
             
-            # Write export file
+            if not self._confirm_native_action(
+                "导出所有数据",
+                f"将所有应用数据导出为本机 JSON（API 密钥已脱敏）？\n{export_path}",
+            ):
+                return self._error_response("已取消数据导出", "USER_CONFIRMATION_REQUIRED")
+
+            # Write export file only after native confirmation.
             self._atomic_write_json(export_path, export_data)
             
             logger.info(f"Successfully exported all data to {export_path}")
@@ -6790,43 +7011,26 @@ class AppBridge(QObject):
 
     @pyqtSlot(result=str)
     def reset_app_data(self):
-        """Reset all application data to defaults with backup"""
+        """Reset all application data only after confirmation and encrypted backup."""
         try:
-            logger.info("Starting app data reset...")
-            
-            # Step 1: Create backup before reset (recommended)
+            if not self._confirm_native_action(
+                "重置应用数据",
+                "此操作将清空课程、任务、成绩、笔记和设置。先创建加密备份，是否继续？",
+            ):
+                return self._error_response("已取消数据重置", "USER_CONFIRMATION_REQUIRED")
+
+            logger.info("Starting app data reset after native confirmation")
             backup_timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            backup_filename = f"backup_before_reset_{backup_timestamp}.json"
-            encrypted_backup_path = None
-            
-            try:
-                # Determine backup path
-                backup_dir = os.path.join(self.data_dir, 'backups')
-                os.makedirs(backup_dir, exist_ok=True)
-                backup_path = os.path.join(backup_dir, backup_filename)
-                
-                # Collect current data for backup
-                backup_data = {
-                    "backup_timestamp": backup_timestamp,
-                    "backup_date": datetime.now().isoformat(),
-                    "backup_reason": "pre_reset_backup",
-                    "data": self._collect_data_snapshot().get("data", {})
-                }
-                
-                # Write backup file
-                self._atomic_write_json(backup_path, backup_data)
-                
-                logger.info(f"Created backup at {backup_path}")
-                try:
-                    encrypted_backup_path = self._create_encrypted_backup("pre_reset")
-                    logger.info(f"Created encrypted backup at {encrypted_backup_path}")
-                except Exception as _:
-                    pass
-                
-            except Exception as e:
-                logger.info(f"Warning: Failed to create backup: {e}")
-                # Continue with reset even if backup fails
-            
+            encrypted_backup_path = self._create_encrypted_backup("pre_reset")
+            if not encrypted_backup_path:
+                logger.warning("App data reset aborted: encrypted pre-reset backup failed")
+                return self._error_response(
+                    "无法创建加密重置备份，未修改任何数据",
+                    "RESET_BACKUP_FAILED",
+                )
+            backup_path = encrypted_backup_path
+            reset_errors = []
+
             # Step 2: Reset all data to defaults
             
             # 2.1 Clear courses (reset to empty list)
@@ -6834,7 +7038,8 @@ class AppBridge(QObject):
                 self._atomic_write_json(self.courses_file, [])
                 logger.info("Cleared courses")
             except Exception as e:
-                logger.info(f"Failed to clear courses: {e}")
+                logger.warning(f"Failed to clear courses ({type(e).__name__})")
+                reset_errors.append("courses")
             
             # 2.2 Clear tasks (reset to empty list)
             try:
@@ -6843,7 +7048,8 @@ class AppBridge(QObject):
                     self.task_manager.tasks = []
                 logger.info("Cleared tasks")
             except Exception as e:
-                logger.info(f"Failed to clear tasks: {e}")
+                logger.warning(f"Failed to clear tasks ({type(e).__name__})")
+                reset_errors.append("tasks")
             
             # 2.3 Clear GPA records (reset to empty list)
             try:
@@ -6851,7 +7057,8 @@ class AppBridge(QObject):
                 self._atomic_write_json(gpa_file, [])
                 logger.info("Cleared GPA records")
             except Exception as e:
-                logger.info(f"Failed to clear GPA records: {e}")
+                logger.warning(f"Failed to clear GPA records ({type(e).__name__})")
+                reset_errors.append("gpa_records")
             
             # 2.4 Clear daily notes (reset to empty dict)
             try:
@@ -6859,19 +7066,22 @@ class AppBridge(QObject):
                 self._atomic_write_json(notes_file, {})
                 logger.info("Cleared daily notes")
             except Exception as e:
-                logger.info(f"Failed to clear daily notes: {e}")
+                logger.warning(f"Failed to clear daily notes ({type(e).__name__})")
+                reset_errors.append("daily_notes")
             
             # 2.5 Clear course groups (reset to empty list)
             try:
                 self._atomic_write_json(self.groups_file, [])
                 logger.info("Cleared course groups")
             except Exception as e:
-                logger.info(f"Failed to clear course groups: {e}")
+                logger.warning(f"Failed to clear course groups ({type(e).__name__})")
+                reset_errors.append("course_groups")
             
             # 2.6 Reset settings to defaults (including new URL fields)
             try:
                 if self.settings_manager:
-                    self.settings_manager.reset_to_defaults()
+                    if not self.settings_manager.reset_to_defaults():
+                        raise RuntimeError("Could not persist default settings")
                     # Reload settings in bridge
                     self.settings = self.load_settings()
                     logger.info("Reset settings to defaults")
@@ -6883,24 +7093,32 @@ class AppBridge(QObject):
                     self.settings = default_settings.to_dict()
                     logger.info("Reset settings to defaults (fallback)")
             except Exception as e:
-                logger.info(f"Failed to reset settings: {e}")
+                logger.warning(f"Failed to reset settings ({type(e).__name__})")
+                reset_errors.append("settings")
             
             # Step 3: Emit signals to notify frontend of reset completion
             
             # Emit dataStateChanged signal
             self.dataStateChanged.emit(json.dumps({
-                "action": "reset_completed",
+                "action": "reset_partial_failure" if reset_errors else "reset_completed",
                 "timestamp": backup_timestamp,
-                "backup_path": backup_path if 'backup_path' in locals() else None
+                "backup_path": backup_path,
+                "failed_sections": reset_errors
             }, ensure_ascii=False))
             
             # Emit settingsUpdated signal to refresh settings in frontend
-            self.settingsUpdated.emit(json.dumps(self.settings, ensure_ascii=False))
+            self.settingsUpdated.emit(json.dumps(self._public_settings(self.settings), ensure_ascii=False))
             
             # Emit scheduleDataUpdated signal to refresh schedule
             self.scheduleDataUpdated.emit()
+            if reset_errors:
+                logger.warning(f"App data reset was partial: {', '.join(reset_errors)}")
+                return self._error_response(
+                    f"部分数据未重置（{', '.join(reset_errors)}）；加密备份保留在 {backup_path}",
+                    "RESET_PARTIAL_FAILURE",
+                )
             self._run_auto_backup_if_needed(force=True)
-            
+
             logger.info("Successfully reset all application data")
             
             # Step 4: Return success status
@@ -6920,6 +7138,4 @@ class AppBridge(QObject):
                 "status": "error",
                 "message": error_msg
             }, ensure_ascii=False)
-
-
 

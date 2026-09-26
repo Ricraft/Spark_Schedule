@@ -1,8 +1,7 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 import sys
 import os
 import json
-import time
 import io
 import random
 import wave
@@ -11,7 +10,7 @@ from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebEngineCore import QWebEngineSettings, QWebEnginePage
 from PyQt6.QtWebChannel import QWebChannel
 from PyQt6.QtCore import QUrl, Qt, QTimer
-from PyQt6.QtGui import QColor, QIcon, QAction
+from PyQt6.QtGui import QColor, QIcon, QAction, QDesktopServices
 
 # Import the Bridge
 from bridge import AppBridge
@@ -24,9 +23,6 @@ def get_resource_path(relative_path):
         base_path = sys._MEIPASS  # type: ignore[attr-defined]
     else:
         base_path = os.path.dirname(os.path.abspath(__file__))
-
-    if not getattr(sys, "frozen", False) and relative_path.startswith("react (3)"):
-        base_path = os.path.dirname(base_path)
 
     return os.path.join(base_path, relative_path)
 
@@ -53,15 +49,52 @@ def prepare_webengine_env_from_settings():
             with open(settings_file, 'r', encoding='utf-8') as f:
                 settings_data = json.load(f)
             gpu_acceleration_enabled = settings_data.get('gpu_acceleration', True)
-            enable_devtools = settings_data.get('enable_devtools', False)
+            enable_devtools = settings_data.get('enable_devtools') is True
     except Exception as e:
         print(f"⚠️ [Settings] Preload failed before QApplication: {e}, using defaults")
 
     if not gpu_acceleration_enabled:
         os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--disable-gpu --disable-software-rasterizer"
-    os.environ["QTWEBENGINE_REMOTE_DEBUGGING"] = "8888"
+    # A CDP endpoint can execute JavaScript in the privileged WebChannel page.
+    # Never expose it during normal operation, even when a stale environment exists.
+    if enable_devtools:
+        os.environ["QTWEBENGINE_REMOTE_DEBUGGING"] = "127.0.0.1:8888"
+    else:
+        os.environ.pop("QTWEBENGINE_REMOTE_DEBUGGING", None)
 
     return gpu_acceleration_enabled, enable_devtools
+
+
+class TrustedAppPage(QWebEnginePage):
+    """Keep the native bridge attached only to our bundled frontend."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._trusted_root = None
+
+    def set_trusted_root(self, index_path):
+        self._trusted_root = os.path.normcase(os.path.realpath(os.path.dirname(index_path)))
+
+    def acceptNavigationRequest(self, url, navigation_type, is_main_frame):
+        if url.toString() == "about:blank":
+            return True
+        if self._trusted_root and url.isLocalFile():
+            target = os.path.normcase(os.path.realpath(url.toLocalFile()))
+            try:
+                return os.path.commonpath((self._trusted_root, target)) == self._trusted_root
+            except ValueError:
+                return False
+        if (is_main_frame and navigation_type == QWebEnginePage.NavigationType.NavigationTypeLinkClicked
+                and url.scheme().lower() in ("http", "https")):
+            QDesktopServices.openUrl(url)
+        return False
+
+
+class RestrictedImportPage(QWebEnginePage):
+    """Untrusted school pages may navigate the web, but not local files."""
+
+    def acceptNavigationRequest(self, url, navigation_type, is_main_frame):
+        return url.toString() == "about:blank" or url.scheme().lower() in ("http", "https")
 
 
 class ScholarApp(QMainWindow):
@@ -102,7 +135,7 @@ class ScholarApp(QMainWindow):
                     gpu_acceleration_enabled = settings_data.get('gpu_acceleration', True)
                     self.minimize_to_tray = settings_data.get('minimize_to_tray', True)
                     self.start_minimized = settings_data.get('start_minimized', False)
-                    self.enable_devtools = settings_data.get('enable_devtools', False)
+                    self.enable_devtools = settings_data.get('enable_devtools') is True
                     self.show_python_console = settings_data.get('show_python_console', False)
                     self.performance_overlay = settings_data.get('performance_overlay', False)
                     self.enable_notifications = settings_data.get('enable_notifications', True)
@@ -125,13 +158,12 @@ class ScholarApp(QMainWindow):
         else:
             print("馃殌 [WebEngine] Hardware acceleration enabled")
         
-        # Enable remote debugging (always enabled for DevTools access)
-        os.environ["QTWEBENGINE_REMOTE_DEBUGGING"] = "8888"
+        # Debugging must be configured before QApplication in
+        # prepare_webengine_env_from_settings; never turn it on here.
         if self.enable_devtools:
-            print("馃攳 [DevTools] Remote debugging enabled: http://localhost:8888")
-            print("馃攳 [DevTools] You can open Chrome DevTools by visiting chrome://inspect")
+            print("[DevTools] Local-only remote debugging enabled: http://127.0.0.1:8888")
         else:
-            print("馃敡 [WebEngine] Remote debugging port: 8888 (DevTools disabled in settings)")
+            print("[WebEngine] Remote debugging disabled")
         
         # Show Python console window if enabled
         if self.show_python_console:
@@ -139,6 +171,7 @@ class ScholarApp(QMainWindow):
         
         # 1. Setup main WebEngine
         self.browser = QWebEngineView()
+        self.browser.setPage(TrustedAppPage(self.browser))
         self.setCentralWidget(self.browser)
         
         # Enable DevTools if requested
@@ -159,6 +192,7 @@ class ScholarApp(QMainWindow):
         
         # 3. Setup import browser view (鍐呭祵娴忚鍣?
         self.import_browser_view = QWebEngineView()
+        self.import_browser_view.setPage(RestrictedImportPage(self.import_browser_view))
         self.import_browser_view.setWindowFlag(Qt.WindowType.FramelessWindowHint)
         self.import_browser_view.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.import_browser_view.page().setBackgroundColor(QColor(0, 0, 0, 0))
@@ -166,8 +200,8 @@ class ScholarApp(QMainWindow):
         
         # Configure import browser settings
         import_settings = self.import_browser_view.page().settings()
-        import_settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
-        import_settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
+        import_settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, False)
+        import_settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, False)
         import_settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptEnabled, True)
         import_settings.setAttribute(QWebEngineSettings.WebAttribute.AutoLoadImages, True)
         import_settings.setAttribute(QWebEngineSettings.WebAttribute.ShowScrollBars, True)  # 鍚敤婊氬姩鏉?
@@ -181,7 +215,7 @@ class ScholarApp(QMainWindow):
         
         # Configure main browser settings
         settings = self.browser.page().settings()
-        settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
+        settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, False)
         settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
         settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptEnabled, True)
         settings.setAttribute(QWebEngineSettings.WebAttribute.AutoLoadImages, True)
@@ -204,9 +238,7 @@ class ScholarApp(QMainWindow):
         print(f"✅ [WebEngine] 持久化存储路径 {storage_path}")
         print(f"✅ [WebEngine] 缓存路径: {cache_path}")
         
-        # 清除 HTTP 缓存（但不影响 localStorage 和数据缓存）
-        profile.clearHttpCache()
-        print("[WebEngine] HTTP cache cleared")
+        # Hashed frontend assets can safely use the persistent WebEngine cache.
 
         # 馃攧 澶勭悊鍦扮悊位置鏉冮檺璇锋眰
         self.browser.page().featurePermissionRequested.connect(self._on_feature_permission_requested)
@@ -222,13 +254,10 @@ class ScholarApp(QMainWindow):
         logger.info("Starting backend initialization...")
         self.bridge.perform_initialization()
         
-        # 6. Load main UI
-        # 浣跨敤 react (3) 浣滀负涓昏UI婧愮爜
-        # 馃敡 淇锛氭敮鎸佹墦鍖呭悗鐨勮矾寰勬煡鎵?
+        # 6. Only load the frontend built from this repository. Never trust
+        # a sibling directory (or an arbitrary index.html in the workdir).
         ui_search_paths = [
-            get_resource_path(os.path.join("react (3)", "dist", "index.html")),
-            get_resource_path(os.path.join("dist", "index.html")),
-            get_resource_path("index.html")
+            get_resource_path(os.path.join("frontend", "dist", "index.html")),
         ]
         
         main_ui_path = None
@@ -238,12 +267,13 @@ class ScholarApp(QMainWindow):
                 break
         
         if main_ui_path:
-            print(f"鉁?[UI] Loading main UI from: {main_ui_path}")
+            print(f"[UI] Loading bundled frontend: {main_ui_path}")
+            self.browser.page().set_trusted_root(main_ui_path)
             self.browser.setUrl(QUrl.fromLocalFile(os.path.abspath(main_ui_path)))
         else:
             print(f"鉂?[UI] Main UI file not found in search paths: {ui_search_paths}")
             if not getattr(sys, 'frozen', False):
-                print("馃挕 [UI] Please run 'npm run build' in the 'react (3)' directory first")
+                print("[UI] Run 'npm ci --prefix frontend' and 'npm run build --prefix frontend' first")
             else:
                 print("馃挕 [UI] Frontend files may be missing from the package. Check PyInstaller --add-data configuration.")
         
@@ -405,12 +435,12 @@ class ScholarApp(QMainWindow):
             self.perf_timer.timeout.connect(self._update_performance_overlay)
             self.perf_timer.start(1000)  # 姣忕鏇存柊涓€娆?
             
-            # 鍒濆鍖?FPS 璁℃暟鍣?
-            self.frame_count = 0
-            self.last_fps_time = time.time()
-            self.current_fps = 0
-            
-            print("鉁?[Performance] Performance overlay enabled")
+            # Prime psutil's non-blocking per-process CPU counter.
+            import psutil
+            self._perf_process = psutil.Process()
+            self._perf_process.cpu_percent(interval=None)
+
+            print("[Performance] Performance overlay enabled")
         except ImportError:
             print("鈿狅笍 [Performance] psutil not installed, performance overlay disabled")
         except Exception as e:
@@ -419,28 +449,11 @@ class ScholarApp(QMainWindow):
     def _update_performance_overlay(self):
         """更新性能监控数据"""
         try:
-            import psutil
-            import time
-            
-            # 获取内存使用情况
-            process = psutil.Process()
-            mem_info = process.memory_info()
-            mem_mb = mem_info.rss / 1024 / 1024
-            
-            # 获取 CPU 使用率
-            cpu_percent = process.cpu_percent(interval=0.1)
-            
-            # 璁＄畻 FPS锛堢畝鍖栫増锛屽熀浜庡畾鏃跺櫒锛?
-            current_time = time.time()
-            if current_time - self.last_fps_time >= 1.0:
-                self.current_fps = self.frame_count
-                self.frame_count = 0
-                self.last_fps_time = current_time
-            self.frame_count += 1
-            
-            # 鏇存柊鏄剧ず
-            perf_text = f"""FPS: {self.current_fps}
-CPU: {cpu_percent:.1f}%
+            process = self._perf_process
+            mem_mb = process.memory_info().rss / 1024 / 1024
+            # A timer tick is not a rendered frame. Never present it as FPS.
+            cpu_percent = process.cpu_percent(interval=None)
+            perf_text = f"""CPU: {cpu_percent:.1f}%
 Memory: {mem_mb:.1f} MB
 Threads: {process.num_threads()}"""
             
@@ -656,18 +669,23 @@ Threads: {process.num_threads()}"""
 
     def apply_runtime_settings(self, settings: dict):
         """Apply selected settings immediately at runtime."""
+        result = {"ok": True, "errors": {}}
         if not isinstance(settings, dict):
-            return
+            return result
         if "minimize_to_tray" in settings:
             self.set_minimize_to_tray(settings.get("minimize_to_tray"))
         if "auto_start" in settings:
-            self.set_auto_start(settings.get("auto_start"))
+            ok, err = self.set_auto_start(settings.get("auto_start"))
+            if not ok:
+                result["ok"] = False
+                result["errors"]["auto_start"] = err or "apply auto_start failed"
         if "start_minimized" in settings:
             self.start_minimized = bool(settings.get("start_minimized"))
         if "performance_overlay" in settings:
             self.set_performance_overlay(settings.get("performance_overlay"))
         if any(k in settings for k in ("enable_notifications", "notification_sound", "notification_volume")):
             self.set_notification_preferences(settings)
+        return result
     
     def _on_tray_activated(self, reason):
         """澶勭悊鎵樼洏鍥炬爣婵€娲讳簨浠"""
@@ -720,16 +738,22 @@ Threads: {process.num_threads()}"""
     
     def _on_feature_permission_requested(self, url, feature):
         """澶勭悊缃戦〉鏉冮檺璇锋眰锛堝湴鐞嗕綅缃€侀€氱煡绛夛級"""
+        # School websites are untrusted: never silently grant geolocation.
         if feature == QWebEnginePage.Feature.Geolocation:
-            print(f"馃搷 [WebEngine] 姝ｅ湪涓?{url.toString()} 鎺堟潈鍦扮悊位置鏉冮檺")
             self.sender().setFeaturePermission(
-                url, 
-                feature, 
-                QWebEnginePage.PermissionPolicy.PermissionGrantedByUser
+                url,
+                feature,
+                QWebEnginePage.PermissionPolicy.PermissionDeniedByUser,
             )
 
-    # ===== 鍐呭祵娴忚鍣ㄦ帶鍒舵柟娉?=====
-    
+    # ===== Import browser controls =====
+
+    @staticmethod
+    def _safe_import_url(value):
+        url = QUrl(str(value))
+        return (url.isValid() and url.scheme().lower() in ("http", "https")
+                and bool(url.host()) and not url.userInfo())
+
     def open_web_browser_view(self, config_json_str):
         """鏍规嵁鍓嶇浼犳潵鐨勫潗鏍囨樉绀哄鍏ユ祻瑙堝櫒"""
         import json
@@ -738,32 +762,28 @@ Threads: {process.num_threads()}"""
         try:
             config = json.loads(config_json_str)
             if config.get('visible'):
+                new_url = config.get('url')
+                if new_url and not self._safe_import_url(new_url):
+                    print("[Import] Blocked unsafe browser URL")
+                    return
                 x = int(config.get('x', 0))
                 y = int(config.get('y', 0))
-                w = int(config.get('width', 800))
-                h = int(config.get('height', 600))
-                
-                # 馃敡 浼樺寲锛氱‘淇濅笉鎸′綇搴曢儴鎸夐挳锛屼繚鐣欒冻澶熺殑搴曢儴绌洪棿
-                # 鍑忓皯楂樺害锛岀‘淇濆簳閮ㄦ寜閽彲瑙?
-                h = max(400, h - 80)  # 鍑忓皯80px楂樺害锛岀‘淇濆簳閮ㄦ寜閽彲瑙?
-                
-                # 1. 鍏堣缃綅缃?
-                # 璁剧疆涓轰富绐楀彛鐨勫瓙绐楀彛
-                self.import_browser_view.setParent(self)
-                self.import_browser_view.setWindowFlags(Qt.WindowType.Widget | Qt.WindowType.FramelessWindowHint)
-                
-                # 璁剧疆鍑犱綍位置
-                self.import_browser_view.setGeometry(QRect(x, y, w, h))
-                
-                # 鏄剧ず娴忚鍣ㄨ鍥?
-                self.import_browser_view.show()
-                self.import_browser_view.raise_()
-                
-                # 2. 鍙湁褰?config 閲屾槑纭寘鍚?url 涓斾笉涓虹┖鏃讹紝鎵嶅姞杞界綉椤?
-                # 杩欐牱 syncBrowserPosition 鍙戞潵鐨勭函鍧愭爣鍖呭氨涓嶄細瀵艰嚧鍒锋柊
-                new_url = config.get('url')
-                if new_url:
-                    self.import_browser_view.setUrl(QUrl(new_url))
+                w = max(1, min(4096, int(config.get('width', 800))))
+                h = max(400, min(4096, int(config.get('height', 600)) - 80))
+                view = self.import_browser_view
+                if not getattr(self, '_import_browser_embedded', False):
+                    view.setParent(self)
+                    view.setWindowFlags(Qt.WindowType.Widget | Qt.WindowType.FramelessWindowHint)
+                    self._import_browser_embedded = True
+                geometry = QRect(x, y, w, h)
+                if view.geometry() != geometry:
+                    view.setGeometry(geometry)
+                if not view.isVisible():
+                    view.show()
+                    view.raise_()
+                # A position-only update never reloads the school page.
+                if new_url and view.url() != QUrl(new_url):
+                    view.setUrl(QUrl(new_url))
             else:
                 self.import_browser_view.hide()
         except Exception as e:
@@ -780,6 +800,9 @@ Threads: {process.num_threads()}"""
     def load_url_in_browser(self, url):
         """鍦ㄥ唴宓屾祻瑙堝櫒涓姞杞経RL"""
         try:
+            if not self._safe_import_url(url):
+                print("[Import] Blocked unsafe browser URL")
+                return
             if hasattr(self, 'import_browser_view') and self.import_browser_view:
                 self.import_browser_view.setUrl(QUrl(url))
         except Exception as e:

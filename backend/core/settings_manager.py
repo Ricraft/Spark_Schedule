@@ -14,8 +14,10 @@ from datetime import datetime
 
 try:
     from ..models.schedule_settings import ScheduleSettings
+    from ..bridge_security import SECRET_SETTING_FIELDS, backup_key_path, encrypt_backup_payload
 except ImportError:
     from models.schedule_settings import ScheduleSettings
+    from bridge_security import SECRET_SETTING_FIELDS, backup_key_path, encrypt_backup_payload
 
 
 def _safe_print(*args, **kwargs):
@@ -97,9 +99,9 @@ class SettingsManager:
                 # 验证加载的设置
                 is_valid, error_msg = self.settings.validate()
                 if not is_valid:
-                    print(f"⚠️ [SettingsManager] 设置验证失败: {error_msg}, 使用默认设置")
+                    print(f"⚠️ [SettingsManager] 设置验证失败: {error_msg}, 保留原文件并在内存使用默认设置")
                     self.settings = ScheduleSettings()
-                    self.save_settings(self.settings)
+                    return self.settings
                 else:
                     # 如果版本已迁移，保存更新后的设置
                     if loaded_version != self.current_version:
@@ -113,23 +115,21 @@ class SettingsManager:
                 self.save_settings(self.settings)
                 
         except (json.JSONDecodeError, ValueError) as e:
-            # 文件损坏，备份并使用默认设置
-            print(f"❌ [SettingsManager] 设置文件损坏: {e}")
-            self._backup_corrupted_file()
+            # Preserve a corrupted settings file unless a protected backup succeeds.
+            print(f"❌ [SettingsManager] 设置文件损坏 ({type(e).__name__})")
+            if not self._backup_corrupted_file():
+                self.settings = ScheduleSettings()
+                return self.settings
             self.settings = ScheduleSettings()
             # 尝试保存默认设置
             try:
                 self.save_settings(self.settings)
             except Exception as save_error:
-                print(f"❌ [SettingsManager] 保存默认设置失败: {save_error}")
+                print(f"❌ [SettingsManager] 保存默认设置失败 ({type(save_error).__name__})")
         except Exception as e:
-            print(f"❌ [SettingsManager] 加载设置失败: {e}, 使用默认设置")
+            # Unknown read/migration errors must not overwrite a possibly recoverable file.
+            print(f"❌ [SettingsManager] 加载设置失败 ({type(e).__name__})，原文件保持不变")
             self.settings = ScheduleSettings()
-            # 尝试保存默认设置
-            try:
-                self.save_settings(self.settings)
-            except Exception as save_error:
-                print(f"❌ [SettingsManager] 保存默认设置失败: {save_error}")
         
         return self.settings
     
@@ -603,10 +603,13 @@ class SettingsManager:
             是否导出成功
         """
         try:
-            # 添加导出元数据
+            # Never put API credentials into a directly exported JSON file.
             export_data = self.settings.to_dict()
+            for key in SECRET_SETTING_FIELDS:
+                if key in export_data:
+                    export_data[key] = ""
+            export_data['secrets_redacted'] = True
             export_data['export_timestamp'] = datetime.now().isoformat()
-            export_data['export_source'] = self.settings_file
             
             with open(export_path, 'w', encoding='utf-8') as f:
                 json.dump(export_data, f, indent=4, ensure_ascii=False)
@@ -634,11 +637,19 @@ class SettingsManager:
             
             with open(import_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-            
-            # 移除导出元数据
+            if not isinstance(data, dict):
+                return False, "设置文件内容必须是 JSON 对象"
+
+            # A sanitized export omits credentials; retain current credentials on import.
+            secrets_redacted = bool(data.pop('secrets_redacted', False))
             data.pop('export_timestamp', None)
             data.pop('export_source', None)
-            
+            if secrets_redacted:
+                current_settings = self.get_settings_dict()
+                for key in SECRET_SETTING_FIELDS:
+                    if not data.get(key):
+                        data[key] = current_settings.get(key, "")
+
             # 创建设置对象并验证
             imported_settings = ScheduleSettings.from_dict(data)
             is_valid, error_msg = imported_settings.validate()
@@ -725,9 +736,14 @@ class SettingsManager:
                 with open(self.settings_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                 
-                # 添加备份元数据
+                if not isinstance(data, dict):
+                    return False
+                # Settings backups are plain JSON, so never copy API credentials into them.
+                for key in SECRET_SETTING_FIELDS:
+                    if key in data:
+                        data[key] = ""
+                data['secrets_redacted'] = True
                 data['backup_timestamp'] = datetime.now().isoformat()
-                data['backup_source'] = self.settings_file
                 
                 with open(backup_path, 'w', encoding='utf-8') as f:
                     json.dump(data, f, indent=4, ensure_ascii=False)
@@ -742,31 +758,35 @@ class SettingsManager:
             print(f"❌ [SettingsManager] 创建备份失败: {e}")
             return False
     
-    def _backup_corrupted_file(self):
-        """
-        备份损坏的设置文件
-        
-        将损坏的文件移动到备份目录，文件名包含 'corrupted' 标记
-        """
+    def _backup_corrupted_file(self) -> bool:
+        """Encrypt corrupted settings bytes before moving them to the backup folder."""
         try:
             if not os.path.exists(self.settings_file):
-                return
-            
-            # 确保备份目录存在
+                return False
+
             os.makedirs(self.backup_dir, exist_ok=True)
-            
-            # 生成损坏文件的备份文件名
+            with open(self.settings_file, "rb") as source:
+                encrypted = encrypt_backup_payload(
+                    source.read(),
+                    backup_key_path(),
+                    self.backup_dir,
+                    legacy_key_file=os.path.join(self.backup_dir, "backup.key"),
+                )
+
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            corrupted_filename = f"settings_corrupted_{timestamp}.json"
-            corrupted_path = os.path.join(self.backup_dir, corrupted_filename)
-            
-            # 移动损坏的文件到备份目录
-            os.replace(self.settings_file, corrupted_path)
-            
-            print(f"🔧 [SettingsManager] 损坏文件已备份: {corrupted_filename}")
-            
+            corrupted_path = os.path.join(self.backup_dir, f"settings_corrupted_{timestamp}.bak")
+            temp_path = f"{corrupted_path}.tmp"
+            with open(temp_path, "wb") as target:
+                target.write(encrypted)
+                target.flush()
+                os.fsync(target.fileno())
+            os.replace(temp_path, corrupted_path)
+            os.remove(self.settings_file)
+            print("🔧 [SettingsManager] 损坏设置已加密备份")
+            return True
         except Exception as e:
-            print(f"❌ [SettingsManager] 备份损坏文件失败: {e}")
+            print(f"❌ [SettingsManager] 加密损坏设置备份失败 ({type(e).__name__})")
+            return False
     
     def _cleanup_old_backups(self):
         """
@@ -891,9 +911,17 @@ class SettingsManager:
             with open(backup_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             
-            # 移除备份元数据
+            if not isinstance(data, dict):
+                return False, "备份文件内容必须是 JSON 对象"
+            # Restore redacted JSON backups without clearing current credentials.
+            secrets_redacted = bool(data.pop('secrets_redacted', False))
             data.pop('backup_timestamp', None)
             data.pop('backup_source', None)
+            if secrets_redacted:
+                current_settings = self.get_settings_dict()
+                for key in SECRET_SETTING_FIELDS:
+                    if not data.get(key):
+                        data[key] = current_settings.get(key, "")
             
             # 创建设置对象并验证
             restored_settings = ScheduleSettings.from_dict(data)

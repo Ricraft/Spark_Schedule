@@ -41,8 +41,11 @@ data/logs/
 data/webengine_cache/
 data/webengine_storage/
 data/_audit_*/
+# Never add newly generated backend storage; existing tracked files require separate review.
+backend/data/*
 
 # Backups
+README.md.old
 backups/
 *.bak
 *.bak_*
@@ -53,6 +56,7 @@ backups/
 build/
 build_*/
 dist/
+SparkSchedule-*-Windows.zip
 *.spec
 auto-py-to-exe-config.json
 打包完成说明.txt
@@ -66,9 +70,13 @@ enable_debug_mode.py
 .hypothesis/
 */.hypothesis/
 
-# Documentation (Markdown files)
+# Keep historical local notes out, but version developer documentation.
 *.md
 !README.md
+!PACKAGE_README.md
+!docs/
+!docs/*.md
+!frontend/README.md
 
 # Temporary Files
 .tmp/
@@ -97,9 +105,31 @@ run_type_check.*
 main_backup.py
 bridge.py.bak_*
 
-# Dev Dependencies
-requirements-dev.txt
-mypy.ini
+# Reproducible frontend outputs are built locally; source and lockfile are tracked.
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
+frontend/jest-results.json
+
+# Keep essential build and quality scripts versioned despite the legacy globs.
+!build_exe.spec
+!build_exe_clean.spec
+!build.bat
+!build_clean.bat
+!rebuild_clean.bat
+!build_simple.py
+!pre_package_check.py
+!clean_sensitive_data.py
+!run_type_check.py
+!run_type_check.bat
+!requirements-dev.txt
+!mypy.ini
+!tests/
+!tests/*.py
+!tests/**/*.py
+
+# Agent collaboration state is not application source.
+.agent-teams/
 
 # Chinese Named Files
 快速启动.bat

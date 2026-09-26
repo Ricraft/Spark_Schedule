@@ -1,0 +1,33 @@
+name: Validate desktop source
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install Python runtime and test dependencies
+        run: python -m pip install -r requirements.txt pytest hypothesis
+      - name: Install locked frontend dependencies
+        run: npm ci --prefix frontend
+      - name: Typecheck frontend
+        run: npm exec --prefix frontend -- tsc --noEmit -p frontend/tsconfig.app.json
+      - name: Run frontend regressions
+        run: npm test --prefix frontend -- --runInBand --silent
+      - name: Build frontend
+        run: npm run build --prefix frontend
+      - name: Verify package input allowlist
+        run: python pre_package_check.py
+      - name: Run Python regressions
+        run: python -m pytest -q

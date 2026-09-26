@@ -4,6 +4,11 @@ import os
 import json
 import time
 
+try:
+    from ..bridge_security import get_weather_request, normalize_weather_host
+except ImportError:
+    from bridge_security import get_weather_request, normalize_weather_host
+
 
 class WeatherService:
     """和风天气服务"""
@@ -18,11 +23,11 @@ class WeatherService:
             cache_file: 天气缓存文件路径
         """
         self.api_key = api_key
-        self.api_host = api_host
+        self.api_host = normalize_weather_host(api_host)
         self.cache_file = cache_file
-        # 使用自定义 API Host，注意路径前缀
-        self.geo_api_url = f"https://{api_host}/geo/v2/city/lookup"
-        self.weather_api_url = f"https://{api_host}/v7/weather/now"
+        # Host input is validated as a hostname only; HTTPS is always used.
+        self.geo_api_url = f"https://{self.api_host}/geo/v2/city/lookup"
+        self.weather_api_url = f"https://{self.api_host}/v7/weather/now"
     
     def _load_cache(self, city: str) -> Optional[Dict[str, Any]]:
         """
@@ -118,13 +123,15 @@ class WeatherService:
             包含location_id和city_name的字典，失败返回None
         """
         try:
-            # 🔒 安全：不在日志中暴露完整 URL 和 API Key
+            # Resolve to public addresses and do not forward keys through redirects.
             print(f"🔍 [WeatherService] 请求城市查询: {city}")
-            
-            response = requests.get(
-                self.geo_api_url,
-                params={'location': city, 'key': self.api_key},
-                timeout=10
+            response = get_weather_request(
+                requests,
+                self.api_host,
+                "/geo/v2/city/lookup",
+                self.api_key,
+                {"location": city},
+                timeout=10,
             )
             
             print(f"📡 [WeatherService] 响应状态码: {response.status_code}")
@@ -146,10 +153,10 @@ class WeatherService:
             }
             
         except requests.RequestException as e:
-            print(f"❌ [WeatherService] 城市查询网络错误: {e}")
+            print(f"❌ [WeatherService] 城市查询网络错误 ({type(e).__name__})")
             return None
         except Exception as e:
-            print(f"❌ [WeatherService] 城市查询异常: {e}")
+            print(f"❌ [WeatherService] 城市查询异常 ({type(e).__name__})")
             return None
     
     def get_weather(self, city: str = '北京') -> Optional[Dict[str, Any]]:
@@ -177,11 +184,14 @@ class WeatherService:
             location_id = location_info['location_id']
             city_name = location_info['city_name']
             
-            # 3. 获取实时天气
-            response = requests.get(
-                self.weather_api_url,
-                params={'location': location_id, 'key': self.api_key},
-                timeout=10
+            # 3. Revalidate DNS and fetch only over HTTPS without redirects.
+            response = get_weather_request(
+                requests,
+                self.api_host,
+                "/v7/weather/now",
+                self.api_key,
+                {"location": location_id},
+                timeout=10,
             )
             
             if response.status_code != 200:
@@ -211,8 +221,8 @@ class WeatherService:
             return weather_info
             
         except requests.RequestException as e:
-            print(f"❌ [WeatherService] 天气获取网络错误: {e}")
+            print(f"❌ [WeatherService] 天气获取网络错误 ({type(e).__name__})")
             return None
         except Exception as e:
-            print(f"❌ [WeatherService] 天气获取异常: {e}")
+            print(f"❌ [WeatherService] 天气获取异常 ({type(e).__name__})")
             return None

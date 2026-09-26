@@ -27,7 +27,7 @@ strict_equality = true
 
 # 针对验证器模块的严格检查
 [[tool.mypy.overrides]]
-module = "backend.utils.validators"
+module = "src.utils.validators"
 disallow_untyped_defs = true
 warn_redundant_casts = true
 warn_unused_ignores = true
